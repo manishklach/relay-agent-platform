@@ -54,6 +54,10 @@ React control plane + API routes
 Cloudflare D1: agents, tools, runs, traces, approvals, evals, audit logs
 ```
 
+### Authoritative build system
+
+Vinext on Vite is the authoritative compiler and runtime adapter. The `app/` router, route handlers, and `next/*` imports are the Next-compatible source convention that Vinext consumes; this project does not run the Next.js CLI. `vite.config.ts` owns the Vinext, Sites, Tailwind, and Cloudflare Worker integration, while the package scripts invoke `vinext dev` and `vinext build`. An empty migration-era `next.config.ts` and stale `.next` type includes were removed to avoid implying that two build pipelines exist.
+
 The mock provider is intentionally deterministic, so the full product and evaluation loop work without an API key. The OpenAI provider uses function tools, returns outputs by tool-call ID, disables provider-side response storage, and limits a run to four model turns.
 
 For deeper design notes, see [Architecture](docs/architecture.md). For a deployment-focused checklist, see [Deployment guide](docs/deployment.md).

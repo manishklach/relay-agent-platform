@@ -50,7 +50,7 @@ Hosted requests use Sites' ChatGPT identity headers. The first authenticated mem
 
 ## Deployment
 
-The application builds to Cloudflare Worker-compatible ESM through Vinext, the Cloudflare Vite plugin, and the Sites Vite plugin. `.openai/hosting.json` declares the D1 binding. Secrets remain runtime environment values and are never stored in D1 or delivered to the browser.
+The application builds to Cloudflare Worker-compatible ESM through Vinext, the Cloudflare Vite plugin, and the Sites Vite plugin. `vite.config.ts` is the authoritative build configuration and the `vinext` CLI is the only development/build entrypoint. The `app/` router is a Next-compatible source convention consumed by Vinext; there is no separate Next.js CLI build. `.openai/hosting.json` declares the D1 binding. Secrets remain runtime environment values and are never stored in D1 or delivered to the browser.
 
 ## Deliberate boundaries
 
