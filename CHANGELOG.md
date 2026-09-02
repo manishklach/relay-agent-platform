@@ -2,6 +2,19 @@
 
 All notable changes to Relay are documented here.
 
+## [Unreleased]
+
+### Provider and runtime production safety
+
+- Add an explicit provider registry and a runtime-validated OpenAI-compatible response boundary.
+- Fail closed instead of silently switching an OpenAI-configured agent to mock output when credentials are absent.
+- Bound model calls by timeout, response bytes, and retry attempts; reuse one idempotency key across transient retries.
+- Enforce per-run model-turn, tool-call, token, estimated-cost, and elapsed-time budgets.
+- Validate all safety configuration, including HTTPS-only provider endpoints in production.
+- Add CI for linting, type checking, unit tests, and production builds.
+- Add focused tests for configuration, budgets, retry classification, idempotency, timeout, size caps, and malformed provider responses.
+- Upgrade React Server Components, Vinext, Vite, Cloudflare tooling, and transitive production packages to clear the production dependency audit.
+
 ## [0.2.0] - 2026-09-02
 
 Relay 0.2.0 hardens agent tool execution, adds focused unit coverage, clarifies the runtime architecture, and publishes a comprehensive refactoring audit.

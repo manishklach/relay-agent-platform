@@ -22,7 +22,8 @@ In a second terminal:
 
 ```bash
 npm run lint
-npx tsc --noEmit
+npm run typecheck
+npm test
 npm run test:smoke
 npm run build
 ```
@@ -60,9 +61,12 @@ For real OpenAI execution, add these server-side environment values to the deplo
 ```dotenv
 OPENAI_API_KEY=your_api_key
 OPENAI_BASE_URL=https://api.openai.com/v1
+RELAY_ENV=production
 ```
 
 Never prefix the key with `NEXT_PUBLIC_`; doing so would make it eligible for browser delivery. Never commit a populated `.env.local` file.
+
+Review the execution limits in `.env.example` before launch. Start with the checked-in defaults, observe real run latency/token distributions, and lower limits for narrowly scoped agents. Configuration is schema validated; production rejects a non-HTTPS provider URL, and OpenAI agents fail rather than producing mock output when the key is missing.
 
 ## 4. Build and deploy
 

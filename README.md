@@ -209,9 +209,13 @@ For a non-Sites deployment, replace the Sites identity adapter in `app/chatgpt-a
 - Prompt-injection patterns are blocked before model execution.
 - Email addresses and phone numbers can be redacted from final output.
 - Provider-side response storage is disabled for OpenAI calls.
+- Real-model provider responses are runtime-schema validated and bounded by a deadline and byte cap.
+- Transient model failures use bounded exponential retries with a stable idempotency key.
+- Every run enforces model-turn, tool-call, token, estimated-cost, and wall-clock budgets.
+- A configured real-model provider fails closed when its credentials are missing; it never silently switches to mock output.
 - Secrets stay in runtime environment variables and are not written to D1 or sent to the browser.
 
-Before handling sensitive or regulated data, add managed connector secrets, stricter SSRF protection with DNS/IP validation, rate limiting, retention controls, model and tool timeouts, and organization-specific authorization policies.
+Before handling sensitive or regulated data, add managed connector secrets, rate limiting, retention controls, durable execution checkpoints, idempotent external-action jobs, and organization-specific authorization policies.
 
 ## Project structure
 
@@ -221,9 +225,10 @@ components/             Control-plane UI and reusable components
 db/                     D1 access, schema, and idempotent bootstrap
 docs/                   Architecture and deployment documentation
 drizzle/                Generated SQL migrations
-lib/                    Runtime, tools, guardrails, and server helpers
+lib/                    Runtime, providers, budgets, tools, guardrails, and server helpers
 public/                 Static assets and social preview
 scripts/smoke.mjs       End-to-end smoke test
+.github/workflows/      Pull-request and main-branch verification
 .openai/hosting.json    Sites project and binding declaration
 vite.config.ts          Vinext, Sites, Tailwind, and Cloudflare setup
 ```
@@ -231,6 +236,10 @@ vite.config.ts          Vinext, Sites, Tailwind, and Cloudflare setup
 ## Current scope
 
 Relay is an end-to-end MVP rather than a hosted multi-tenant commercial service. The first release deliberately uses one visible workspace, deterministic contains/not-contains evaluation graders, public HTTP connectors without stored credentials, and no remote MCP transport. These boundaries keep the system understandable and deployable by one person while preserving clear extension points.
+
+## Runtime safety configuration
+
+Production deployments should set `RELAY_ENV=production`. Runtime bounds have safe defaults and can be tuned with `RELAY_MODEL_TIMEOUT_MS`, `RELAY_MODEL_MAX_RESPONSE_BYTES`, `RELAY_MODEL_MAX_ATTEMPTS`, `RELAY_RUN_MAX_TURNS`, `RELAY_RUN_MAX_TOOL_CALLS`, `RELAY_RUN_MAX_INPUT_TOKENS`, `RELAY_RUN_MAX_OUTPUT_TOKENS`, `RELAY_RUN_MAX_COST_USD`, and `RELAY_RUN_MAX_DURATION_MS`. Invalid, negative, or excessively large values fail configuration validation. See `.env.example` for the defaults.
 
 ## Release
 

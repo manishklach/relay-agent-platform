@@ -62,3 +62,9 @@ The application builds to Cloudflare Worker-compatible ESM through Vinext, the C
 ## Evaluation grader extension point
 
 Evaluation execution resolves each case's `grader_type` through `GraderRegistry`. A grader receives the agent output plus the case's existing `expected_json` configuration and returns a pass/fail result, normalized score, and optional reason. Graders may be synchronous or asynchronous, so a future rubric grader can call a model without changing the evaluation-suite schema, endpoint shape, or execution loop. Registering such a grader still requires explicit code/configuration review; Relay intentionally ships without an LLM grader or grader credentials.
+
+## Provider and execution safety boundary
+
+Model access is resolved through an explicit `ProviderRegistry`; unknown providers fail closed. `OpenAICompatibleProvider` owns its wire protocol, response schema validation, response-size limit, per-attempt timeout, and bounded transient retries. Retries reuse one idempotency key for the logical model request. An agent configured for OpenAI cannot silently fall back to deterministic mock output when credentials are unavailable.
+
+`ExecutionBudgetTracker` enforces independent ceilings for model turns, tool calls, input tokens, output tokens, estimated cost, and elapsed time. Limits are checked before each model turn, around each tool call, and after provider usage is known. These request-local controls prevent unbounded work, but they are not durable cancellation: a Worker termination cannot currently resume from the last completed step. Durable checkpoints, leases, and idempotent external-action jobs remain the next persistence milestone.
