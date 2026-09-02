@@ -2,6 +2,68 @@
 
 All notable changes to Relay are documented here.
 
+## [0.2.0] - 2026-09-02
+
+Relay 0.2.0 hardens agent tool execution, adds focused unit coverage, clarifies the runtime architecture, and publishes a comprehensive refactoring audit.
+
+### SSRF and HTTP connector hardening
+
+- Resolve A and AAAA records and reject private, loopback, link-local, reserved, and otherwise non-global destinations.
+- Block decimal, octal, hexadecimal, IPv4-mapped IPv6, and cloud-metadata address representations.
+- Disable automatic redirects and repeat URL/DNS validation before every redirect hop.
+- Limit HTTP tool requests to a five-second total deadline, five redirects, and a 512 KiB streamed response.
+- Add focused tests for IP encodings, IPv6, mixed DNS results, redirect pivots, timeouts, and oversized responses.
+
+### Prompt-injection defense in depth
+
+- Normalize common Unicode spacing tricks before inspecting user content.
+- Inspect untrusted tool output before returning it to a model and withhold obvious indirect instructions.
+- Withhold final model output that claims an allowlist bypass or resembles common secret leakage.
+- Document that lexical matching is a weak tripwire rather than a semantic security guarantee.
+- Add tests that both demonstrate current protection and record base64/indirect semantic gaps.
+
+### Runtime safety and approvals
+
+- Apply the same explicit tool-allowlist decision to deterministic and OpenAI provider paths.
+- Expand PII redaction coverage to common complete and partially obfuscated phone formats.
+- Extract a testable approval state machine.
+- Atomically claim pending approvals before executing an approved tool, preventing duplicate concurrent decisions and rejected-action execution.
+- Add focused tests for allowlists, redaction, approval transitions, and non-execution after rejection.
+
+### Evaluation architecture
+
+- Introduce a typed grader registry with synchronous and asynchronous grader support.
+- Move contains and not-contains grading out of the route implementation.
+- Return normalized grader scores and optional reasons without changing the evaluation-suite request shape.
+- Demonstrate a future asynchronous model-rubric grader through tests without adding an LLM call or credentials.
+
+### Architecture and developer experience
+
+- Confirm Vinext and Vite as the authoritative build pipeline.
+- Remove the unused `next.config.ts` and stale `.next` TypeScript include paths.
+- Add a comprehensive architecture/refactoring audit with a scorecard, five prioritized bottlenecks, concrete code designs, and a testing roadmap.
+- Add 39 unit tests across six focused suites while retaining the end-to-end smoke workflow.
+
+### Licensing
+
+- License Relay under Apache License 2.0, including the explicit contributor patent grant.
+- Declare the SPDX-compatible license identifier in package metadata and document the license in the README.
+
+### Verification
+
+- 39 unit tests pass across six files.
+- TypeScript validation and Oxlint pass.
+- The production Vinext build succeeds.
+- The end-to-end smoke suite passes with a 100 reference evaluation score.
+
+### Known limitations
+
+- Relay remains a single-agent operations MVP rather than a durable multi-agent relay engine.
+- Model calls do not yet have a complete timeout/retry/backoff policy.
+- Approved side effects still need a transactional outbox and downstream idempotency contract for crash-safe recovery.
+- Conversation history, context compaction, and token/cost execution budgets are not yet implemented.
+- Pattern-based prompt-injection detection cannot guarantee semantic attack detection.
+
 ## [0.1.0] - 2026-09-02
 
 Relay's first public release provides a complete, production-shaped agent operations loop for a solo founder.

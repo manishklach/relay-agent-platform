@@ -234,4 +234,8 @@ Relay is an end-to-end MVP rather than a hosted multi-tenant commercial service.
 
 ## Release
 
-The initial public release is `v0.1.0`. See [GitHub Releases](https://github.com/manishklach/relay-agent-platform/releases) for versioned notes.
+The current public release is `v0.2.0`. See [GitHub Releases](https://github.com/manishklach/relay-agent-platform/releases) for versioned notes.
+
+## License
+
+Relay is licensed under the [Apache License 2.0](LICENSE). You may use, modify, and distribute it under the license terms, including its explicit patent grant. Relay names and branding are not granted as trademarks by the license.
