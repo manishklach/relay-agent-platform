@@ -58,3 +58,7 @@ The application builds to Cloudflare Worker-compatible ESM through Vinext, the C
 - HTTP tools support public endpoints without stored credentials. Managed secret references and OAuth are later integration work.
 - MCP is represented in the registry but remote MCP transport is not enabled yet.
 - The evaluation engine currently provides deterministic contains/not-contains graders. Model-graded rubrics can be added behind the same suite abstraction.
+
+## Evaluation grader extension point
+
+Evaluation execution resolves each case's `grader_type` through `GraderRegistry`. A grader receives the agent output plus the case's existing `expected_json` configuration and returns a pass/fail result, normalized score, and optional reason. Graders may be synchronous or asynchronous, so a future rubric grader can call a model without changing the evaluation-suite schema, endpoint shape, or execution loop. Registering such a grader still requires explicit code/configuration review; Relay intentionally ships without an LLM grader or grader credentials.
