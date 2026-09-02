@@ -15,7 +15,7 @@ const unsafeModelOutputPatterns = [
 ];
 
 const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const phonePattern = /\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g;
+const phonePattern = /(?<!\w)(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?(?:\d{3}|[xX*•]{3})[-.\s]?(?:\d{4}|[xX*•]{4})(?!\w)/g;
 
 export function inspectInput(input: string, agent: AgentConfig): { blocked: boolean; message?: string; step?: RuntimeStep } {
   if (!agent.guardrails.blockPromptInjection) return { blocked: false };

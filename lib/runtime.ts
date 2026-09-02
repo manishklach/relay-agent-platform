@@ -1,7 +1,8 @@
 import { env } from 'cloudflare:workers';
 
 import { inspectInput, inspectModelOutput, inspectToolOutput, sanitizeOutput } from './guardrails';
-import { executeRuntimeTool, executeTool, loadRuntimeTools, type ToolDefinition } from './tools';
+import { getAllowedTool } from './tool-policy';
+import { executeRuntimeTool, executeTool, loadRuntimeTools, toolCatalog, type ToolDefinition } from './tools';
 import type { AgentConfig, RuntimeResult, RuntimeStep } from './types';
 
 type ResponseOutputItem = Record<string, unknown> & {
@@ -37,6 +38,10 @@ async function executeMockAgent(agent: AgentConfig, input: string): Promise<Runt
   const started = Date.now();
   const orderId = input.match(/#?([A-Z]+-[A-Z0-9-]+)/i)?.[1]?.toUpperCase() ?? 'A-1042';
 
+  if (!getAllowedTool('lookup_account', agent.allowedTools, toolCatalog)) {
+    return blockedToolResult(agent, input, 'lookup_account', steps, started);
+  }
+
   const accountStarted = Date.now();
   const account = await executeTool('lookup_account', { order_id: orderId });
   steps.push(step(0, 'tool', 'Account lookup', 'succeeded', { order_id: orderId }, account, Date.now() - accountStarted));
@@ -47,6 +52,9 @@ async function executeMockAgent(agent: AgentConfig, input: string): Promise<Runt
     return totals(agent, input, output, steps, started);
   }
 
+  if (!getAllowedTool('lookup_policy', agent.allowedTools, toolCatalog)) {
+    return blockedToolResult(agent, input, 'lookup_policy', steps, started);
+  }
   const policyStarted = Date.now();
   const policy = await executeTool('lookup_policy', { query: 'refund eligibility' });
   steps.push(step(1, 'tool', 'Policy search', 'succeeded', { query: 'refund eligibility' }, policy, Date.now() - policyStarted));
@@ -123,8 +131,8 @@ async function executeOpenAICompatibleAgent(agent: AgentConfig, input: string): 
       for (const call of toolCalls) {
         const toolName = call.name ?? '';
         const callId = call.call_id ?? '';
-        const definition = availableTools.find((tool) => tool.name === toolName);
-        if (!definition || !agent.allowedTools.includes(toolName)) {
+        const definition = getAllowedTool(toolName, agent.allowedTools, availableTools);
+        if (!definition) {
           inputItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify({ error: 'Tool is not allowed for this agent.' }) });
           steps.push(step(steps.length, 'guardrail', 'Tool allowlist', 'blocked', { tool: toolName }, { reason: 'tool_not_allowed' }, 1));
           continue;
@@ -243,6 +251,17 @@ function totals(agent: AgentConfig, input: string, rawOutput: string, steps: Run
     outputTokens: estimateTokens(output),
     estimatedCostUsd: 0,
   };
+}
+
+function blockedToolResult(
+  agent: AgentConfig,
+  input: string,
+  toolName: string,
+  steps: RuntimeStep[],
+  started: number,
+): RuntimeResult {
+  steps.push(step(steps.length, 'guardrail', 'Tool allowlist', 'blocked', { tool: toolName }, { reason: 'tool_not_allowed' }, Date.now() - started));
+  return totals(agent, input, 'This agent is not permitted to use the tool required for that request.', steps, started);
 }
 
 function safeJsonObject(value: string): Record<string, unknown> {
