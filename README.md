@@ -60,7 +60,7 @@ Vinext on Vite is the authoritative compiler and runtime adapter. The `app/` rou
 
 The mock provider is intentionally deterministic, so the full product and evaluation loop work without an API key. The OpenAI provider uses function tools, returns outputs by tool-call ID, disables provider-side response storage, and limits a run to four model turns.
 
-For deeper design notes, see [Architecture](docs/architecture.md). For a deployment-focused checklist, see [Deployment guide](docs/deployment.md).
+For deeper design notes, see [Architecture](docs/architecture.md). The current production-readiness findings and refactoring roadmap are in the [architecture and refactoring audit](docs/architecture-refactoring-audit.md). For a deployment-focused checklist, see [Deployment guide](docs/deployment.md).
 
 ## Quick start
 
