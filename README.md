@@ -54,9 +54,13 @@ React control plane + API routes
 Cloudflare D1: agents, tools, runs, traces, approvals, evals, audit logs
 ```
 
+### Authoritative build system
+
+Vinext on Vite is the authoritative compiler and runtime adapter. The `app/` router, route handlers, and `next/*` imports are the Next-compatible source convention that Vinext consumes; this project does not run the Next.js CLI. `vite.config.ts` owns the Vinext, Sites, Tailwind, and Cloudflare Worker integration, while the package scripts invoke `vinext dev` and `vinext build`. An empty migration-era `next.config.ts` and stale `.next` type includes were removed to avoid implying that two build pipelines exist.
+
 The mock provider is intentionally deterministic, so the full product and evaluation loop work without an API key. The OpenAI provider uses function tools, returns outputs by tool-call ID, disables provider-side response storage, and limits a run to four model turns.
 
-For deeper design notes, see [Architecture](docs/architecture.md). For a deployment-focused checklist, see [Deployment guide](docs/deployment.md).
+For deeper design notes, see [Architecture](docs/architecture.md). The current production-readiness findings and refactoring roadmap are in the [architecture and refactoring audit](docs/architecture-refactoring-audit.md). For a deployment-focused checklist, see [Deployment guide](docs/deployment.md).
 
 ## Quick start
 
@@ -230,4 +234,8 @@ Relay is an end-to-end MVP rather than a hosted multi-tenant commercial service.
 
 ## Release
 
-The initial public release is `v0.1.0`. See [GitHub Releases](https://github.com/manishklach/relay-agent-platform/releases) for versioned notes.
+The current public release is `v0.2.0`. See [GitHub Releases](https://github.com/manishklach/relay-agent-platform/releases) for versioned notes.
+
+## License
+
+Relay is licensed under the [Apache License 2.0](LICENSE). You may use, modify, and distribute it under the license terms, including its explicit patent grant. Relay names and branding are not granted as trademarks by the license.

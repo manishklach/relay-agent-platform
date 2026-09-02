@@ -1,6 +1,7 @@
 {
   "name": "relay-agent-platform",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "license": "Apache-2.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -10,6 +11,7 @@
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
+    "test:unit": "vitest run",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",
     "test:smoke": "node scripts/smoke.mjs"
@@ -24,6 +26,7 @@
     "drizzle-orm": "0.45.2",
     "embla-carousel-react": "8.5.2",
     "input-otp": "1.4.2",
+    "ipaddr.js": "^2.2.0",
     "lucide-react": "1.31.0",
     "react": "19.2.6",
     "react-day-picker": "9.8.1",
@@ -54,6 +57,7 @@
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "vite": "8.0.13",
+    "vitest": "^4.1.0",
     "wrangler": "4.92.0"
   },
   "type": "module"

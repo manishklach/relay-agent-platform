@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import { DEFAULT_WORKSPACE_ID, requireActor, writeAudit } from '@/lib/server-data';
 import { executeRuntimeTool, loadRuntimeTools } from '@/lib/tools';
+import { applyApprovalDecision, transitionApproval } from '@/lib/approvals';
 
 const decisionInput = z.object({
   approvalId: z.string().min(1),
@@ -42,17 +43,28 @@ export async function POST(request: NextRequest) {
 
     const now = Date.now();
     const runId = String(approval.run_id);
-    let toolResult: Record<string, unknown> = { rejected: true };
-    if (parsed.data.decision === 'approved') {
-      const [tool] = await loadRuntimeTools(DEFAULT_WORKSPACE_ID, [String(approval.tool_name)]);
-      if (!tool) return NextResponse.json({ error: 'Approved tool is no longer available' }, { status: 409 });
-      toolResult = await executeRuntimeTool(tool, JSON.parse(String(approval.arguments_json)) as Record<string, unknown>);
+    const transition = transitionApproval('pending', parsed.data.decision);
+    let tool: Awaited<ReturnType<typeof loadRuntimeTools>>[number] | undefined;
+    if (transition.executeTool) {
+      const [loadedTool] = await loadRuntimeTools(DEFAULT_WORKSPACE_ID, [String(approval.tool_name)]);
+      if (!loadedTool) return NextResponse.json({ error: 'Approved tool is no longer available' }, { status: 409 });
+      tool = loadedTool;
     }
 
+    const claimed = await env.DB.prepare(
+      `UPDATE approvals SET status = ?, decided_at = ?, decided_by = ? WHERE id = ? AND status = 'pending'`,
+    ).bind(transition.to, now, actor.id, parsed.data.approvalId).run();
+    if (claimed.meta.changes !== 1) {
+      return NextResponse.json({ error: 'Approval has already been decided' }, { status: 409 });
+    }
+
+    const args = JSON.parse(String(approval.arguments_json)) as Record<string, unknown>;
+    const toolResult = await applyApprovalDecision(transition, async () => {
+      if (!tool) throw new Error('Approved tool is no longer available.');
+      return executeRuntimeTool(tool, args);
+    });
+
     await env.DB.batch([
-      env.DB.prepare(
-        `UPDATE approvals SET status = ?, decided_at = ?, decided_by = ? WHERE id = ?`,
-      ).bind(parsed.data.decision, now, actor.id, parsed.data.approvalId),
       env.DB.prepare(
         `INSERT INTO run_steps (
           id, run_id, sequence, kind, name, status, input_json, output_json, duration_ms, created_at
@@ -60,22 +72,22 @@ export async function POST(request: NextRequest) {
           'tool', ?, ?, ?, ?, 1, ?)`,
       ).bind(
         crypto.randomUUID(), runId, runId, String(approval.tool_name),
-        parsed.data.decision === 'approved' ? 'succeeded' : 'blocked',
+        transition.to === 'approved' ? 'succeeded' : 'blocked',
         String(approval.arguments_json), JSON.stringify(toolResult), now,
       ),
       env.DB.prepare(
         `UPDATE runs SET status = ?, output = ?, finished_at = ? WHERE id = ?`,
       ).bind(
         'succeeded',
-        parsed.data.decision === 'approved'
-          ? `Approved action completed. Reference: ${typeof toolResult.reference === 'string' ? toolResult.reference : 'recorded'}`
+        transition.to === 'approved'
+          ? `Approved action completed. Reference: ${'reference' in toolResult && typeof toolResult.reference === 'string' ? toolResult.reference : 'recorded'}`
           : 'The requested action was rejected by an operator.',
         now,
         runId,
       ),
     ]);
-    await writeAudit(actor.id, `approval.${parsed.data.decision}`, 'approval', parsed.data.approvalId, { runId });
-    return NextResponse.json({ approvalId: parsed.data.approvalId, status: parsed.data.decision, result: toolResult });
+    await writeAudit(actor.id, `approval.${transition.to}`, 'approval', parsed.data.approvalId, { runId });
+    return NextResponse.json({ approvalId: parsed.data.approvalId, status: transition.to, result: toolResult });
   } catch (error) {
     return toResponse(error);
   }

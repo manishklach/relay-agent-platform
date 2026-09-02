@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import { executeAgent } from '@/lib/runtime';
 import { getAgent, parseJson, requireActor, writeAudit } from '@/lib/server-data';
+import { defaultGraderRegistry } from '@/lib/graders';
 
 const evaluationInput = z.object({ suiteId: z.string().min(1) });
 
@@ -33,16 +34,16 @@ export async function POST(request: NextRequest) {
     const details: Array<Record<string, unknown>> = [];
     for (const testCase of cases.results) {
       const result = await executeAgent(agent, String(testCase.input));
-      const expected = parseJson<{ contains?: string[]; notContains?: string[] }>(testCase.expected_json, {});
-      const normalized = result.output.toLowerCase();
+      const expected = parseJson<Record<string, unknown>>(testCase.expected_json, {});
       const graderType = String(testCase.grader_type);
-      const passed = graderType === 'not_contains'
-        ? (expected.notContains ?? []).every((term) => !normalized.includes(term.toLowerCase()))
-        : (expected.contains ?? []).every((term) => normalized.includes(term.toLowerCase()));
+      const grade = await defaultGraderRegistry.grade(graderType, { output: result.output, expected });
       details.push({
         caseId: testCase.id,
         name: testCase.name,
-        passed,
+        passed: grade.passed,
+        graderType,
+        graderScore: grade.score,
+        graderReason: grade.reason,
         output: result.output,
         status: result.status,
         latencyMs: result.steps.reduce((sum, item) => sum + item.durationMs, 0),
