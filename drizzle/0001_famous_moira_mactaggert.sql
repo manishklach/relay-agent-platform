@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `idx_tools_workspace_name` ON `tools` (`workspace_id`,`name`);

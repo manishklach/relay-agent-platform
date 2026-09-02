@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1788354890274,
+      "tag": "0000_fair_young_avengers",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788355290545,
+      "tag": "0001_famous_moira_mactaggert",
+      "breakpoints": true
+    }
+  ]
+}
