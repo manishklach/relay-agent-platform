@@ -3,9 +3,14 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { DEFAULT_WORKSPACE_ID, requireActor, writeAudit } from '@/lib/server-data';
-import { executeRuntimeTool, loadRuntimeTools } from '@/lib/tools';
-import { applyApprovalDecision, transitionApproval } from '@/lib/approvals';
+import {
+  DEFAULT_WORKSPACE_ID,
+  requireActor,
+  writeAudit,
+} from '@/lib/server-data';
+import { transitionApproval } from '@/lib/approvals';
+import { processToolExecution } from '@/lib/tool-executions';
+import { loadRuntimeTools, supportsIdempotentExecution } from '@/lib/tools';
 
 const decisionInput = z.object({
   approvalId: z.string().min(1),
@@ -20,9 +25,11 @@ export async function GET(request: NextRequest) {
        FROM approvals
        JOIN runs ON runs.id = approvals.run_id
        JOIN agents ON agents.id = runs.agent_id
-       WHERE approvals.status = 'pending'
+       WHERE approvals.workspace_id = ? AND approvals.status = 'pending'
        ORDER BY approvals.requested_at DESC`,
-    ).all<Record<string, unknown>>();
+    )
+      .bind(DEFAULT_WORKSPACE_ID)
+      .all<Record<string, unknown>>();
     return NextResponse.json({ approvals: result.results });
   } catch (error) {
     return toResponse(error);
@@ -33,61 +40,165 @@ export async function POST(request: NextRequest) {
   try {
     const actor = await requireActor(request, 'operator');
     const parsed = decisionInput.safeParse(await request.json());
-    if (!parsed.success) return NextResponse.json({ error: 'Invalid approval decision' }, { status: 400 });
+    if (!parsed.success)
+      return NextResponse.json(
+        { error: 'Invalid approval decision' },
+        { status: 400 },
+      );
 
     const approval = await env.DB.prepare(
-      `SELECT id, run_id, tool_name, arguments_json, status FROM approvals WHERE id = ?`,
-    ).bind(parsed.data.approvalId).first<Record<string, unknown>>();
-    if (!approval) return NextResponse.json({ error: 'Approval not found' }, { status: 404 });
-    if (approval.status !== 'pending') return NextResponse.json({ error: 'Approval has already been decided' }, { status: 409 });
+      `SELECT id, run_id, tool_name, arguments_json, status FROM approvals
+       WHERE id = ? AND workspace_id = ?`,
+    )
+      .bind(parsed.data.approvalId, DEFAULT_WORKSPACE_ID)
+      .first<Record<string, unknown>>();
+    if (!approval)
+      return NextResponse.json(
+        { error: 'Approval not found' },
+        { status: 404 },
+      );
+    if (approval.status !== 'pending')
+      return NextResponse.json(
+        { error: 'Approval has already been decided' },
+        { status: 409 },
+      );
 
     const now = Date.now();
     const runId = String(approval.run_id);
     const transition = transitionApproval('pending', parsed.data.decision);
-    let tool: Awaited<ReturnType<typeof loadRuntimeTools>>[number] | undefined;
-    if (transition.executeTool) {
-      const [loadedTool] = await loadRuntimeTools(DEFAULT_WORKSPACE_ID, [String(approval.tool_name)]);
-      if (!loadedTool) return NextResponse.json({ error: 'Approved tool is no longer available' }, { status: 409 });
-      tool = loadedTool;
-    }
-
-    const claimed = await env.DB.prepare(
-      `UPDATE approvals SET status = ?, decided_at = ?, decided_by = ? WHERE id = ? AND status = 'pending'`,
-    ).bind(transition.to, now, actor.id, parsed.data.approvalId).run();
-    if (claimed.meta.changes !== 1) {
-      return NextResponse.json({ error: 'Approval has already been decided' }, { status: 409 });
-    }
-
-    const args = JSON.parse(String(approval.arguments_json)) as Record<string, unknown>;
-    const toolResult = await applyApprovalDecision(transition, async () => {
-      if (!tool) throw new Error('Approved tool is no longer available.');
-      return executeRuntimeTool(tool, args);
-    });
-
-    await env.DB.batch([
-      env.DB.prepare(
-        `INSERT INTO run_steps (
+    if (!transition.executeTool) {
+      const results = await env.DB.batch([
+        env.DB.prepare(
+          `UPDATE approvals SET status = 'rejected', decided_at = ?, decided_by = ?
+           WHERE id = ? AND workspace_id = ? AND status = 'pending'`,
+        ).bind(now, actor.id, parsed.data.approvalId, DEFAULT_WORKSPACE_ID),
+        env.DB.prepare(
+          `INSERT OR IGNORE INTO run_steps (
           id, run_id, sequence, kind, name, status, input_json, output_json, duration_ms, created_at
-        ) VALUES (?, ?, (SELECT COALESCE(MAX(sequence), -1) + 1 FROM run_steps WHERE run_id = ?),
-          'tool', ?, ?, ?, ?, 1, ?)`,
+        ) SELECT ?, ?, (SELECT COALESCE(MAX(sequence), -1) + 1 FROM run_steps WHERE run_id = ?),
+          'tool', ?, 'blocked', ?, '{"rejected":true}', 1, ?
+          WHERE EXISTS (SELECT 1 FROM approvals
+            WHERE id = ? AND workspace_id = ? AND status = 'rejected' AND decided_by = ? AND decided_at = ?)`,
+        ).bind(
+          `approval_step_${parsed.data.approvalId}`,
+          runId,
+          runId,
+          String(approval.tool_name),
+          String(approval.arguments_json),
+          now,
+          parsed.data.approvalId,
+          DEFAULT_WORKSPACE_ID,
+          actor.id,
+          now,
+        ),
+        env.DB.prepare(
+          `UPDATE runs SET status = 'succeeded', output = ?, error = NULL, finished_at = ?
+           WHERE id = ? AND EXISTS (SELECT 1 FROM approvals
+             WHERE id = ? AND workspace_id = ? AND status = 'rejected' AND decided_by = ? AND decided_at = ?)`,
+        ).bind(
+          'The requested action was rejected by an operator.',
+          now,
+          runId,
+          parsed.data.approvalId,
+          DEFAULT_WORKSPACE_ID,
+          actor.id,
+          now,
+        ),
+      ]);
+      if (results[0]?.meta.changes !== 1) {
+        return NextResponse.json(
+          { error: 'Approval has already been decided' },
+          { status: 409 },
+        );
+      }
+      await writeAudit(
+        actor.id,
+        'approval.rejected',
+        'approval',
+        parsed.data.approvalId,
+        { runId },
+      );
+      return NextResponse.json({
+        approvalId: parsed.data.approvalId,
+        status: 'rejected',
+        result: { rejected: true },
+      });
+    }
+
+    const [tool] = await loadRuntimeTools(DEFAULT_WORKSPACE_ID, [
+      String(approval.tool_name),
+    ]);
+    if (!tool)
+      return NextResponse.json(
+        { error: 'Approved tool is no longer available' },
+        { status: 409 },
+      );
+    const executionId = `execution_${crypto.randomUUID()}`;
+    const idempotencyKey = `approval:${parsed.data.approvalId}`;
+    const retrySafe = supportsIdempotentExecution(tool);
+    const results = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE approvals SET status = 'approved', decided_at = ?, decided_by = ?
+         WHERE id = ? AND workspace_id = ? AND status = 'pending'`,
+      ).bind(now, actor.id, parsed.data.approvalId, DEFAULT_WORKSPACE_ID),
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO tool_executions (
+          id, workspace_id, run_id, approval_id, tool_name, arguments_json, idempotency_key,
+          retry_safe, status, attempts, max_attempts, next_attempt_at, created_at, updated_at
+        ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, 3, ?, ?, ?
+          WHERE EXISTS (SELECT 1 FROM approvals WHERE id = ? AND workspace_id = ? AND status = 'approved')`,
       ).bind(
-        crypto.randomUUID(), runId, runId, String(approval.tool_name),
-        transition.to === 'approved' ? 'succeeded' : 'blocked',
-        String(approval.arguments_json), JSON.stringify(toolResult), now,
+        executionId,
+        DEFAULT_WORKSPACE_ID,
+        runId,
+        parsed.data.approvalId,
+        String(approval.tool_name),
+        String(approval.arguments_json),
+        idempotencyKey,
+        retrySafe ? 1 : 0,
+        now,
+        now,
+        now,
+        parsed.data.approvalId,
+        DEFAULT_WORKSPACE_ID,
       ),
       env.DB.prepare(
-        `UPDATE runs SET status = ?, output = ?, finished_at = ? WHERE id = ?`,
+        `UPDATE runs SET status = 'running', output = ?, error = NULL, finished_at = NULL
+         WHERE id = ? AND EXISTS (SELECT 1 FROM tool_executions
+           WHERE approval_id = ? AND workspace_id = ? AND status = 'queued')`,
       ).bind(
-        'succeeded',
-        transition.to === 'approved'
-          ? `Approved action completed. Reference: ${'reference' in toolResult && typeof toolResult.reference === 'string' ? toolResult.reference : 'recorded'}`
-          : 'The requested action was rejected by an operator.',
-        now,
+        'Approved action queued for durable execution.',
         runId,
+        parsed.data.approvalId,
+        DEFAULT_WORKSPACE_ID,
       ),
     ]);
-    await writeAudit(actor.id, `approval.${transition.to}`, 'approval', parsed.data.approvalId, { runId });
-    return NextResponse.json({ approvalId: parsed.data.approvalId, status: transition.to, result: toolResult });
+    if (results[0]?.meta.changes !== 1) {
+      return NextResponse.json(
+        { error: 'Approval has already been decided' },
+        { status: 409 },
+      );
+    }
+
+    await writeAudit(
+      actor.id,
+      'approval.approved',
+      'approval',
+      parsed.data.approvalId,
+      {
+        runId,
+        executionId,
+        retrySafe,
+      },
+    );
+    const execution = await processToolExecution(
+      executionId,
+      DEFAULT_WORKSPACE_ID,
+    );
+    return NextResponse.json(
+      { approvalId: parsed.data.approvalId, status: 'approved', execution },
+      { status: execution.status === 'succeeded' ? 200 : 202 },
+    );
   } catch (error) {
     return toResponse(error);
   }
@@ -95,5 +206,8 @@ export async function POST(request: NextRequest) {
 
 function toResponse(error: unknown) {
   if (error instanceof Response) return error;
-  return NextResponse.json({ error: error instanceof Error ? error.message : 'Unexpected error' }, { status: 500 });
+  return NextResponse.json(
+    { error: error instanceof Error ? error.message : 'Unexpected error' },
+    { status: 500 },
+  );
 }
