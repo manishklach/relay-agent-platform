@@ -198,6 +198,7 @@ For a non-Sites deployment, replace the Sites identity adapter in `app/chatgpt-a
 | `/api/tools` | GET, POST | List and register tools |
 | `/api/runs` | GET, POST | List and execute runs |
 | `/api/approvals` | GET, POST | List and decide approvals |
+| `/api/tool-executions` | GET, POST | Inspect and drain durable mutating-tool jobs |
 | `/api/evaluations` | GET, POST | List and create suites |
 | `/api/evaluations/run` | POST | Execute an evaluation suite |
 
@@ -205,6 +206,8 @@ For a non-Sites deployment, replace the Sites identity adapter in `app/chatgpt-a
 
 - Agent tools are deny-by-default through per-agent allowlists.
 - State-changing calls can require an operator decision before execution.
+- Approved writes are durably queued before execution and claimed with expiring leases.
+- Idempotent jobs retry with bounded backoff; ambiguous non-idempotent outcomes require reconciliation instead of blind replay.
 - HTTP connectors require public HTTPS targets and reject common private destinations.
 - Prompt-injection patterns are blocked before model execution.
 - Email addresses and phone numbers can be redacted from final output.
@@ -215,7 +218,7 @@ For a non-Sites deployment, replace the Sites identity adapter in `app/chatgpt-a
 - A configured real-model provider fails closed when its credentials are missing; it never silently switches to mock output.
 - Secrets stay in runtime environment variables and are not written to D1 or sent to the browser.
 
-Before handling sensitive or regulated data, add managed connector secrets, rate limiting, retention controls, durable execution checkpoints, idempotent external-action jobs, and organization-specific authorization policies.
+Before handling sensitive or regulated data, add managed connector secrets, rate limiting, retention controls, durable model-turn checkpoints, and organization-specific authorization policies.
 
 ## Project structure
 

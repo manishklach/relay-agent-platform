@@ -15,6 +15,15 @@ All notable changes to Relay are documented here.
 - Add focused tests for configuration, budgets, retry classification, idempotency, timeout, size caps, and malformed provider responses.
 - Upgrade React Server Components, Vinext, Vite, Cloudflare tooling, and transitive production packages to clear the production dependency audit.
 
+### Durable approved tool execution
+
+- Persist approved mutating actions as unique, idempotency-keyed D1 jobs before calling external systems.
+- Add conditional leases, bounded retry scheduling, dead-letter state, and explicit unknown-outcome handling.
+- Propagate idempotency keys to HTTP connectors and make the reference refund tool replay-stable.
+- Add workspace-scoped operator APIs for queue inspection and recovery draining.
+- Separate pure tool contracts, built-in implementations, retry policy, and Cloudflare transport for safer extension and unit testing.
+- Add operational queue metrics, a recovery/reconciliation runbook, a generated migration, and end-to-end approval replay coverage.
+
 ## [0.2.0] - 2026-09-02
 
 Relay 0.2.0 hardens agent tool execution, adds focused unit coverage, clarifies the runtime architecture, and publishes a comprehensive refactoring audit.
