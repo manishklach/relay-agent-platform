@@ -39,6 +39,7 @@ The enforceable boundaries are independent of the matcher: the runtime exposes o
 - `tools`: built-in, HTTP, and future MCP integration metadata.
 - `runs` and `run_steps`: outcomes, cost/latency, and ordered traces.
 - `approvals`: human decisions for state-changing calls.
+- `tool_executions`: durable, leased, idempotency-keyed jobs for approved external actions.
 - `evaluation_suites`, `evaluation_cases`, and `evaluation_runs`: regression gates.
 - `audit_logs`: attributed administrative and operational actions.
 
@@ -67,4 +68,10 @@ Evaluation execution resolves each case's `grader_type` through `GraderRegistry`
 
 Model access is resolved through an explicit `ProviderRegistry`; unknown providers fail closed. `OpenAICompatibleProvider` owns its wire protocol, response schema validation, response-size limit, per-attempt timeout, and bounded transient retries. Retries reuse one idempotency key for the logical model request. An agent configured for OpenAI cannot silently fall back to deterministic mock output when credentials are unavailable.
 
-`ExecutionBudgetTracker` enforces independent ceilings for model turns, tool calls, input tokens, output tokens, estimated cost, and elapsed time. Limits are checked before each model turn, around each tool call, and after provider usage is known. These request-local controls prevent unbounded work, but they are not durable cancellation: a Worker termination cannot currently resume from the last completed step. Durable checkpoints, leases, and idempotent external-action jobs remain the next persistence milestone.
+`ExecutionBudgetTracker` enforces independent ceilings for model turns, tool calls, input tokens, output tokens, estimated cost, and elapsed time. Limits are checked before each model turn, around each tool call, and after provider usage is known. These request-local controls prevent unbounded work, but they are not durable cancellation: a Worker termination cannot currently resume from the last completed model turn. Durable model-context checkpoints remain the next persistence milestone.
+
+## Durable approved actions
+
+An approval decision and its `tool_executions` job are written in one D1 batch before external work begins. A worker conditionally claims a job with an expiring lease, increments its attempt counter, and sends the persisted idempotency key to the tool. A successful result, deterministic trace step, and final run status are committed together. Concurrent drains cannot claim the same live lease, and the unique approval/idempotency indexes prevent duplicate jobs.
+
+Retries are deliberately asymmetric. Built-ins with stable results and HTTP tools explicitly configured with `supportsIdempotency` may retry with bounded exponential backoff. A non-idempotent execution that fails or loses its lease moves to `unknown` and fails the run for operator reconciliation; Relay does not pretend the external action did not happen. Exhausted safe retries move to `dead_letter`. Every query and claim is workspace-scoped.
