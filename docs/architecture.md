@@ -24,6 +24,14 @@ The deterministic `mock` provider makes local development and evaluation reprodu
 
 The model receives only tools listed in the agent's `allowed_tools`. Built-in tools execute inside the Worker. Custom HTTP tools call public HTTPS endpoints; loopback and common private-network destinations are rejected. Mutating tools stop before execution and create an approval record. An operator can approve or reject the exact captured arguments.
 
+### Prompt-injection threat model
+
+Relay's prompt-injection matcher is deliberately a weak first-line tripwire. It normalizes common Unicode spacing tricks and blocks conspicuous requests to ignore instructions, reveal privileged prompts, or bypass policy. It cannot reliably identify semantic attacks, arbitrary encodings, translated instructions, novel phrasing, or instructions hidden in otherwise legitimate data. A passing match is not proof that content is safe.
+
+User input, tool output, and final model output are inspected. Tool output containing an obvious instruction override is withheld before it can be returned to the model. Final model output is withheld when it claims to have bypassed the tool allowlist or contains common secret material. These checks reduce exposure but do not guarantee prompt-injection resistance or secret detection.
+
+The enforceable boundaries are independent of the matcher: the runtime exposes only each agent's allowlisted tools, rejects unregistered tool calls, gates mutating calls for operator approval, and keeps credentials outside prompts and tool results. Integrations should return narrow structured data, use least-privilege credentials, and be treated as untrusted even when the lexical check passes.
+
 ## Data model
 
 - `workspaces` and `workspace_members`: tenancy and roles.

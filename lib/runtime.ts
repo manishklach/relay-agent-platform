@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 
-import { inspectInput, sanitizeOutput } from './guardrails';
+import { inspectInput, inspectModelOutput, inspectToolOutput, sanitizeOutput } from './guardrails';
 import { executeRuntimeTool, executeTool, loadRuntimeTools, type ToolDefinition } from './tools';
 import type { AgentConfig, RuntimeResult, RuntimeStep } from './types';
 
@@ -101,7 +101,14 @@ async function executeOpenAICompatibleAgent(agent: AgentConfig, input: string): 
       ));
 
       if (!toolCalls.length) {
-        const output = sanitizeOutput(responseText, agent);
+        const inspectedOutput = inspectModelOutput(responseText, agent);
+        if (inspectedOutput.step) {
+          inspectedOutput.step.sequence = steps.length;
+          steps.push(inspectedOutput.step);
+        }
+        const output = inspectedOutput.blocked
+          ? inspectedOutput.message ?? 'Model response blocked by policy.'
+          : sanitizeOutput(responseText, agent);
         return {
           status: 'succeeded',
           output,
@@ -139,6 +146,20 @@ async function executeOpenAICompatibleAgent(agent: AgentConfig, input: string): 
 
         const toolStarted = Date.now();
         const result = await executeRuntimeTool(definition, args);
+        const inspectedToolOutput = inspectToolOutput(result, agent);
+        if (inspectedToolOutput.blocked) {
+          steps.push(step(steps.length, 'tool', definition.name, 'blocked', args, { withheld: true }, Date.now() - toolStarted));
+          if (inspectedToolOutput.step) {
+            inspectedToolOutput.step.sequence = steps.length;
+            steps.push(inspectedToolOutput.step);
+          }
+          inputItems.push({
+            type: 'function_call_output',
+            call_id: callId,
+            output: JSON.stringify({ error: 'Tool output was withheld because it contained untrusted instructions.' }),
+          });
+          continue;
+        }
         steps.push(step(steps.length, 'tool', definition.name, 'succeeded', args, result, Date.now() - toolStarted));
         inputItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify(result) });
       }
@@ -206,7 +227,14 @@ function step(
 }
 
 function totals(agent: AgentConfig, input: string, rawOutput: string, steps: RuntimeStep[], _started: number): RuntimeResult {
-  const output = sanitizeOutput(rawOutput, agent);
+  const inspectedOutput = inspectModelOutput(rawOutput, agent);
+  if (inspectedOutput.step) {
+    inspectedOutput.step.sequence = steps.length;
+    steps.push(inspectedOutput.step);
+  }
+  const output = inspectedOutput.blocked
+    ? inspectedOutput.message ?? 'Model response blocked by policy.'
+    : sanitizeOutput(rawOutput, agent);
   return {
     status: 'succeeded',
     output,
