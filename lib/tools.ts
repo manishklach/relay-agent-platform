@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 
 import { parseJson } from './server-data';
+import { safeHttpRequest } from './safe-http';
 
 export type ToolDefinition = {
   name: string;
@@ -112,25 +113,18 @@ export async function executeRuntimeTool(tool: ToolDefinition, args: Record<stri
   const rawUrl = tool.config?.url;
   if (!rawUrl) throw new Error('HTTP tool has no configured URL.');
   const url = new URL(rawUrl);
-  if (url.protocol !== 'https:' || isPrivateHostname(url.hostname)) {
-    throw new Error('HTTP tools must use a public HTTPS endpoint.');
-  }
   const method = tool.config?.method ?? 'POST';
   if (method === 'GET') {
     for (const [key, value] of Object.entries(args)) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));
   }
-  const response = await fetch(url, {
+  const response = await safeHttpRequest(url, {
     method,
     headers: { 'Content-Type': 'application/json', 'User-Agent': 'Relay-Agent-Tool/1.0' },
     body: method === 'GET' ? undefined : JSON.stringify(args),
   });
-  const contentType = response.headers.get('content-type') ?? '';
-  const body: unknown = contentType.includes('application/json') ? await response.json() : await response.text();
+  const body: unknown = response.contentType.includes('application/json')
+    ? JSON.parse(response.bodyText)
+    : response.bodyText;
   if (!response.ok) throw new Error(`HTTP tool returned ${response.status}.`);
   return typeof body === 'object' && body !== null ? body as Record<string, unknown> : { result: body };
-}
-
-function isPrivateHostname(hostname: string) {
-  const value = hostname.toLowerCase();
-  return value === 'localhost' || value === '::1' || value.endsWith('.local') || value.startsWith('127.') || value.startsWith('10.') || value.startsWith('192.168.') || value.startsWith('169.254.') || /^172\.(1[6-9]|2\d|3[01])\./.test(value);
 }
