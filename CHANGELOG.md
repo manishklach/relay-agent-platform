@@ -4,6 +4,20 @@ All notable changes to Relay are documented here.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-03
+
+### Self-evolving HarnessDev execution systems
+
+- Add immutable six-module harness artifacts spanning execution, tools, context, state, lifecycle, and verification.
+- Add a deliberately weak runnable seed and separate Creation and Evolution version lineages.
+- Compile developed harnesses onto bounded, version-pinned agent graphs with enforced context, retry, deadline, and tool-call policies.
+- Add development, feedback, and held-out case splits with sealed pre-declaration results and aggregate-only final held-out reporting.
+- Add self and unified executor modes to measure executor dependence and transfer.
+- Add probe limits, atomic official-candidate reservations, complete same-executor feedback gates, and explicit final declaration.
+- Preserve capability and executor-token cost as separate metrics rather than an opaque combined score.
+- Add constraint auditing for schemas, version pins, tool boundaries, case identifiers, and expected-answer evidence.
+- Add a generated D1 migration, focused unit tests, an end-to-end smoke workflow, and protocol documentation based on HarnessDev.
+
 ## [0.3.0] - 2026-09-03
 
 Relay 0.3.0 adds production-bounded agent loops, durable version-pinned graphs, resumable model execution, idempotent approved actions, and an evaluation- and owner-gated improvement lifecycle.

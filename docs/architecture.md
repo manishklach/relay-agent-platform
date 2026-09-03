@@ -38,6 +38,8 @@ telemetry or evaluation failure
 
 Candidates that miss their threshold are rejected automatically. Passing candidates remain inactive until an owner approves and separately activates them. Activation fails if the base version is no longer active. Rollback creates a new monotonic version copied from a selected known-good snapshot, preserving the complete history.
 
+Harness-level evolution sits above agent-version improvement. A strict artifact composes six controls—execution, tools, context, state, lifecycle, and verification—and compiles them onto the existing version-pinned graph and runtime. Creation begins from an intentionally non-solving seed. Evolution can make bounded probe runs and at most ten official candidate submissions. A candidate is eligible for final declaration only when the same executor configuration completes every feedback benchmark. Held-out cases remain sealed while evolution is active, and case-level results are never exposed. Capability and executor-token cost are recorded independently because a cheaper harness is not necessarily a more capable one. See [HarnessDev](harness-dev.md) for the complete protocol and limitations.
+
 ## Runtime
 
 The deterministic `mock` provider makes local development and evaluation reproducible without credentials. When `OPENAI_API_KEY` is present, an agent configured with provider `openai` uses the Responses API at `OPENAI_BASE_URL`. The runtime preserves response output items across tool turns, returns function-call outputs by `call_id`, disables provider-side storage, and caps each agent run at four model turns.
@@ -67,6 +69,8 @@ The enforceable boundaries are independent of the matcher: the runtime exposes o
 - `graphs` and `graph_versions`: logical workflows and immutable typed definitions with pinned agent versions.
 - `graph_runs`: leased, resumable graph cursors and node outputs.
 - `improvement_proposals`: candidate/base lineage, evaluation threshold and result, review, and activation state.
+- `harness_projects`, `harness_versions`, and `harness_cases`: two-stage harness lineage, immutable six-module artifacts, and isolated development/feedback/held-out splits.
+- `harness_evaluations`: probe/official lanes, self/unified executors, native capability metrics, executor-token cost, and sealed outcomes.
 - `audit_logs`: attributed administrative and operational actions.
 
 Cloudflare D1 is the authoritative store. `db/schema.ts` defines the Drizzle schema, generated migrations live in `drizzle/`, and `db/bootstrap.ts` provides idempotent local initialization and reference data.
