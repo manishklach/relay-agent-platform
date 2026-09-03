@@ -465,6 +465,150 @@ export const improvementProposals = sqliteTable(
   ],
 );
 
+export const harnessProjects = sqliteTable(
+  'harness_projects',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    domain: text('domain', {
+      enum: ['code', 'data', 'writing', 'research', 'custom'],
+    }).notNull(),
+    creatorAgentVersionId: text('creator_agent_version_id')
+      .notNull()
+      .references(() => agentVersions.id),
+    status: text('status', {
+      enum: ['creation', 'evolution', 'completed'],
+    }).notNull(),
+    officialCandidateBudget: integer('official_candidate_budget').notNull(),
+    probeBudgetPerRound: integer('probe_budget_per_round').notNull(),
+    officialCandidatesUsed: integer('official_candidates_used')
+      .notNull()
+      .default(0),
+    baselineVersionId: text('baseline_version_id'),
+    finalVersionId: text('final_version_id'),
+    createdBy: text('created_by').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    index('idx_harness_projects_workspace_status').on(
+      table.workspaceId,
+      table.status,
+    ),
+  ],
+);
+
+export const harnessVersions = sqliteTable(
+  'harness_versions',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => harnessProjects.id),
+    version: integer('version').notNull(),
+    parentVersionId: text('parent_version_id'),
+    stage: text('stage', { enum: ['seed', 'creation', 'evolution'] }).notNull(),
+    status: text('status', {
+      enum: ['frozen', 'rejected', 'declared'],
+    }).notNull(),
+    artifactJson: text('artifact_json').notNull(),
+    constraintAuditJson: text('constraint_audit_json').notNull(),
+    creatorAgentVersionId: text('creator_agent_version_id')
+      .notNull()
+      .references(() => agentVersions.id),
+    officialSubmitted: integer('official_submitted', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    createdBy: text('created_by').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_harness_versions_number').on(
+      table.projectId,
+      table.version,
+    ),
+    index('idx_harness_versions_stage').on(
+      table.projectId,
+      table.stage,
+      table.status,
+    ),
+  ],
+);
+
+export const harnessCases = sqliteTable(
+  'harness_cases',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => harnessProjects.id),
+    externalId: text('external_id'),
+    name: text('name').notNull(),
+    split: text('split', {
+      enum: ['development', 'feedback', 'heldout'],
+    }).notNull(),
+    benchmark: text('benchmark').notNull(),
+    input: text('input').notNull(),
+    expectedJson: text('expected_json').notNull(),
+    graderType: text('grader_type').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [
+    index('idx_harness_cases_project_split').on(
+      table.projectId,
+      table.split,
+      table.benchmark,
+    ),
+  ],
+);
+
+export const harnessEvaluations = sqliteTable(
+  'harness_evaluations',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => harnessProjects.id),
+    harnessVersionId: text('harness_version_id')
+      .notNull()
+      .references(() => harnessVersions.id),
+    split: text('split', {
+      enum: ['development', 'feedback', 'heldout'],
+    }).notNull(),
+    benchmark: text('benchmark').notNull(),
+    lane: text('lane', { enum: ['probe', 'official'] }).notNull(),
+    executorMode: text('executor_mode', {
+      enum: ['self', 'unified'],
+    }).notNull(),
+    executorConfigJson: text('executor_config_json').notNull(),
+    status: text('status', {
+      enum: ['running', 'completed', 'failed'],
+    }).notNull(),
+    metricsJson: text('metrics_json').notNull().default('{}'),
+    resultsJson: text('results_json').notNull().default('[]'),
+    error: text('error'),
+    createdBy: text('created_by').notNull(),
+    createdAt: integer('created_at').notNull(),
+    finishedAt: integer('finished_at'),
+  },
+  (table) => [
+    index('idx_harness_evals_version').on(
+      table.harnessVersionId,
+      table.split,
+      table.lane,
+      table.status,
+    ),
+    index('idx_harness_evals_project_created').on(
+      table.projectId,
+      table.createdAt,
+    ),
+  ],
+);
+
 export const auditLogs = sqliteTable(
   'audit_logs',
   {
