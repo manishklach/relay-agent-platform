@@ -403,6 +403,227 @@ assert(
   'Agent rollback did not restore the selected known-good configuration.',
 );
 
+const harnessProject = await request('/api/harnesses', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    name: `HarnessDev smoke ${Date.now()}`,
+    description:
+      'Exercises creation, sealed evaluation, evolution, and final declaration.',
+    domain: 'custom',
+    creatorAgentVersionId: initialActiveVersion.id,
+    officialCandidateBudget: 1,
+    probeBudgetPerRound: 2,
+    cases: [
+      {
+        externalId: 'dev_case',
+        name: 'Visible development case',
+        split: 'development',
+        benchmark: 'policy',
+        input: 'Can I get a refund for order #A-1042?',
+        expected: { contains: ['eligible'] },
+        graderType: 'contains',
+      },
+      {
+        externalId: 'feedback_policy',
+        name: 'Feedback policy case',
+        split: 'feedback',
+        benchmark: 'policy',
+        input: 'Check whether order #A-1042 is eligible for a refund.',
+        expected: { contains: ['eligible'] },
+        graderType: 'contains',
+      },
+      {
+        externalId: 'feedback_research',
+        name: 'Feedback research case',
+        split: 'feedback',
+        benchmark: 'research',
+        input: 'Research the refund status for order #A-1042.',
+        expected: { contains: ['eligible'] },
+        graderType: 'contains',
+      },
+      {
+        externalId: 'heldout_case',
+        name: 'Sealed held-out case',
+        split: 'heldout',
+        benchmark: 'policy',
+        input: 'Is order #A-1042 eligible under the refund policy?',
+        expected: { contains: ['eligible'] },
+        graderType: 'contains',
+      },
+    ],
+  }),
+});
+assert(
+  harnessProject.seedArtifact.kind === 'seed' &&
+    harnessProject.developmentCases.length === 1 &&
+    !('heldoutCases' in harnessProject),
+  'Harness project did not expose only its permitted Creation inputs.',
+);
+const seedEvaluation = await request('/api/harnesses/evaluate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    harnessVersionId: harnessProject.seedVersionId,
+    split: 'development',
+    benchmark: 'policy',
+  }),
+});
+assert(
+  seedEvaluation.metrics.capabilityScore === 0,
+  'Weak seed unexpectedly solved a development case.',
+);
+
+const harnessArtifact = {
+  ...harnessProject.seedArtifact,
+  kind: 'developed',
+  execution: {
+    mode: 'graph',
+    graph: {
+      version: 1,
+      entryNodeId: 'worker',
+      maxSteps: 2,
+      maxVisitsPerNode: 1,
+      nodes: [
+        {
+          id: 'worker',
+          type: 'agent',
+          agentId: 'agent_customer_care',
+          agentVersionId: initialActiveVersion.id,
+          prompt: '{{input}}',
+        },
+        { id: 'done', type: 'end' },
+      ],
+      edges: [
+        {
+          from: 'worker',
+          to: 'done',
+          priority: 0,
+          when: { type: 'succeeded' },
+        },
+      ],
+    },
+  },
+  tools: {
+    allowed: ['lookup_account', 'lookup_policy', 'issue_refund'],
+    maxCalls: 6,
+    denyUnknown: true,
+  },
+  context: { strategy: 'sliding_window', maxBytes: 8192, maxMessages: 20 },
+  lifecycle: {
+    maxSteps: 2,
+    maxRetries: 1,
+    deadlineMs: 10000,
+    onFailure: 'retry',
+  },
+};
+const creationHarness = await request('/api/harnesses/versions', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    projectId: harnessProject.id,
+    parentVersionId: harnessProject.seedVersionId,
+    stage: 'creation',
+    artifact: harnessArtifact,
+  }),
+});
+assert(creationHarness.status === 'frozen', 'Creation harness was not frozen.');
+const unifiedEvaluation = await request('/api/harnesses/evaluate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    harnessVersionId: creationHarness.id,
+    split: 'development',
+    benchmark: 'policy',
+    executorMode: 'unified',
+    executor: {
+      label: 'fixed-smoke-executor',
+      provider: 'mock',
+      model: 'relay-sim-1',
+      temperature: 0.2,
+    },
+  }),
+});
+assert(
+  unifiedEvaluation.metrics.capabilityScore === 100 &&
+    unifiedEvaluation.metrics.executorTokensTotal > 0 &&
+    !('combinedScore' in unifiedEvaluation.metrics),
+  'Unified executor did not report separate capability and token metrics.',
+);
+const sealedCreation = await request('/api/harnesses/evaluate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    harnessVersionId: creationHarness.id,
+    split: 'heldout',
+    benchmark: 'policy',
+    sealed: true,
+  }),
+});
+assert(
+  sealedCreation.sealed === true && !('metrics' in sealedCreation),
+  'Creation held-out metrics leaked before evolution completed.',
+);
+await request('/api/harnesses/evolve', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    action: 'start',
+    projectId: harnessProject.id,
+    baselineVersionId: creationHarness.id,
+  }),
+});
+const evolvedHarness = await request('/api/harnesses/versions', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    projectId: harnessProject.id,
+    parentVersionId: creationHarness.id,
+    stage: 'evolution',
+    artifact: harnessArtifact,
+  }),
+});
+for (const benchmark of ['policy', 'research']) {
+  await request('/api/harnesses/evaluate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      harnessVersionId: evolvedHarness.id,
+      split: 'feedback',
+      benchmark,
+      lane: 'official',
+    }),
+  });
+}
+const declaredHarness = await request('/api/harnesses/evolve', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    action: 'declare_final',
+    projectId: harnessProject.id,
+    harnessVersionId: evolvedHarness.id,
+  }),
+});
+assert(
+  declaredHarness.finalVersionId === evolvedHarness.id &&
+    declaredHarness.officialCandidatesUsed === 1,
+  'Evolution did not declare the complete official candidate.',
+);
+const heldoutEvaluation = await request('/api/harnesses/evaluate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    harnessVersionId: evolvedHarness.id,
+    split: 'heldout',
+    benchmark: 'policy',
+  }),
+});
+assert(
+  heldoutEvaluation.metrics.capabilityScore === 100 &&
+    !('results' in heldoutEvaluation),
+  'Final held-out evaluation did not preserve case-level secrecy.',
+);
+
 console.log(
   JSON.stringify(
     {
@@ -419,6 +640,8 @@ console.log(
       resumedGraphRun: resumedGraphRun.id,
       improvement: improvement.id,
       rollbackVersion: rollback.activeVersionId,
+      harnessProject: harnessProject.id,
+      finalHarnessVersion: evolvedHarness.id,
     },
     null,
     2,
