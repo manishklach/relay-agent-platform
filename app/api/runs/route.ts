@@ -24,9 +24,12 @@ export async function GET(request: NextRequest) {
     await requireActor(request);
     const result = await env.DB.prepare(
       `SELECT runs.*, agents.name AS agent_name, run_checkpoints.status AS checkpoint_status,
-        run_checkpoints.version AS checkpoint_version, run_checkpoints.updated_at AS checkpoint_updated_at
+        run_checkpoints.version AS checkpoint_version, run_checkpoints.updated_at AS checkpoint_updated_at,
+        run_agent_versions.agent_version_id, agent_versions.version AS agent_version
        FROM runs JOIN agents ON agents.id = runs.agent_id
        LEFT JOIN run_checkpoints ON run_checkpoints.run_id = runs.id
+       LEFT JOIN run_agent_versions ON run_agent_versions.run_id = runs.id
+       LEFT JOIN agent_versions ON agent_versions.id = run_agent_versions.agent_version_id
        WHERE runs.workspace_id = ? ORDER BY runs.created_at DESC LIMIT 100`,
     )
       .bind(DEFAULT_WORKSPACE_ID)
@@ -80,6 +83,13 @@ export async function POST(request: NextRequest) {
         actor.id,
         startedAt,
       ),
+      ...(agent.versionId
+        ? [
+            env.DB.prepare(
+              `INSERT INTO run_agent_versions (run_id, agent_version_id) VALUES (?, ?)`,
+            ).bind(runId, agent.versionId),
+          ]
+        : []),
       env.DB.prepare(
         `INSERT INTO run_checkpoints (
           run_id, workspace_id, status, state_json, version, created_at, updated_at

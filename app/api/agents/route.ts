@@ -3,7 +3,12 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { DEFAULT_WORKSPACE_ID, parseJson, requireActor, writeAudit } from '@/lib/server-data';
+import {
+  DEFAULT_WORKSPACE_ID,
+  parseJson,
+  requireActor,
+  writeAudit,
+} from '@/lib/server-data';
 
 const agentInput = z.object({
   name: z.string().trim().min(2).max(80),
@@ -28,7 +33,9 @@ export async function GET(request: NextRequest) {
       `SELECT id, name, description, provider, model, temperature, status, allowed_tools,
         guardrail_config, created_at, updated_at
        FROM agents WHERE workspace_id = ? ORDER BY updated_at DESC`,
-    ).bind(DEFAULT_WORKSPACE_ID).all<Record<string, unknown>>();
+    )
+      .bind(DEFAULT_WORKSPACE_ID)
+      .all<Record<string, unknown>>();
     return NextResponse.json({
       agents: result.results.map((row) => ({
         ...row,
@@ -45,23 +52,66 @@ export async function POST(request: NextRequest) {
   try {
     const actor = await requireActor(request, 'builder');
     const parsed = agentInput.safeParse(await request.json());
-    if (!parsed.success) return NextResponse.json({ error: 'Invalid agent configuration', issues: z.treeifyError(parsed.error) }, { status: 400 });
+    if (!parsed.success)
+      return NextResponse.json(
+        {
+          error: 'Invalid agent configuration',
+          issues: z.treeifyError(parsed.error),
+        },
+        { status: 400 },
+      );
 
     const id = `agent_${crypto.randomUUID()}`;
     const now = Date.now();
     const agent = parsed.data;
-    await env.DB.prepare(
-      `INSERT INTO agents (
+    const versionId = `agent_version_${crypto.randomUUID()}`;
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO agents (
         id, workspace_id, name, description, system_prompt, provider, model, temperature,
         status, allowed_tools, guardrail_config, created_by, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(
-      id, DEFAULT_WORKSPACE_ID, agent.name, agent.description, agent.systemPrompt,
-      agent.provider, agent.model, agent.temperature, agent.status,
-      JSON.stringify(agent.allowedTools), JSON.stringify(agent.guardrails), actor.id, now, now,
-    ).run();
-    await writeAudit(actor.id, 'agent.created', 'agent', id, { name: agent.name });
-    return NextResponse.json({ id, ...agent, createdAt: now }, { status: 201 });
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+        id,
+        DEFAULT_WORKSPACE_ID,
+        agent.name,
+        agent.description,
+        agent.systemPrompt,
+        agent.provider,
+        agent.model,
+        agent.temperature,
+        agent.status,
+        JSON.stringify(agent.allowedTools),
+        JSON.stringify(agent.guardrails),
+        actor.id,
+        now,
+        now,
+      ),
+      env.DB.prepare(`INSERT INTO agent_versions (
+        id, workspace_id, agent_id, version, config_json, status, source,
+        parent_version_id, created_by, created_at
+      ) VALUES (?, ?, ?, 1, ?, 'active', 'manual', NULL, ?, ?)`).bind(
+        versionId,
+        DEFAULT_WORKSPACE_ID,
+        id,
+        JSON.stringify({
+          systemPrompt: agent.systemPrompt,
+          provider: agent.provider,
+          model: agent.model,
+          temperature: agent.temperature,
+          allowedTools: agent.allowedTools,
+          guardrails: agent.guardrails,
+        }),
+        actor.id,
+        now,
+      ),
+    ]);
+    await writeAudit(actor.id, 'agent.created', 'agent', id, {
+      name: agent.name,
+      versionId,
+    });
+    return NextResponse.json(
+      { id, versionId, ...agent, createdAt: now },
+      { status: 201 },
+    );
   } catch (error) {
     return toResponse(error);
   }
@@ -69,5 +119,8 @@ export async function POST(request: NextRequest) {
 
 function toResponse(error: unknown) {
   if (error instanceof Response) return error;
-  return NextResponse.json({ error: error instanceof Error ? error.message : 'Unexpected error' }, { status: 500 });
+  return NextResponse.json(
+    { error: error instanceof Error ? error.message : 'Unexpected error' },
+    { status: 500 },
+  );
 }
