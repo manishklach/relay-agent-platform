@@ -1,6 +1,6 @@
 # Deployment guide
 
-This guide takes Relay from a clean clone to a verified private production deployment. OpenAI Sites is the supported target because Relay relies on its D1 binding and ChatGPT identity headers.
+This guide covers production decisions, acceptance, updating, and rollback. If this is your first launch, begin with the copy-paste [launch guide](launch-guide.md), then return here for the production checklist. OpenAI Sites is the supported target because Relay relies on its D1 binding and ChatGPT identity headers.
 
 ## 1. Preflight
 
@@ -27,6 +27,8 @@ npm test
 npm run test:smoke
 npm run build
 ```
+
+After stopping the development server, `npm run verify` is the short form for lint, type checking, unit tests, and the production build. The smoke test remains separate because it requires the local server to be running.
 
 Do not deploy if any command fails.
 
@@ -92,6 +94,7 @@ Open the production URL and verify:
 - the release-readiness evaluation completes with three cases;
 - a bounded graph run completes and its agent node references an immutable version;
 - an improvement candidate is evaluated, owner-approved, activated, and rolled back;
+- a HarnessDev seed scores zero, Creation held-out metrics remain sealed, and a complete same-executor feedback candidate can be declared before aggregate held-out scoring;
 - creating an agent or tool is restricted according to the active member role;
 - no API key or secret appears in browser network responses or page source.
 
@@ -107,7 +110,7 @@ For each release:
 6. Deploy the saved version and wait for success.
 7. Repeat the production acceptance checks.
 
-After deploying the durable execution migrations, configure an authenticated scheduler to call `POST /api/tool-executions` and `POST /api/runs/resume` at least once per minute. Graph runs are resumed explicitly after approvals in the current release. See `docs/operations.md` for queue states, checkpoint recovery, version rollback, reconciliation, and alert thresholds.
+After deploying the durable execution migrations, configure an authenticated scheduler to call `POST /api/tool-executions` and `POST /api/runs/resume` at least once per minute. These endpoints require an operator identity; an external scheduler therefore needs a deliberate service-authentication integration and must not forge Sites identity headers. Graph runs are resumed explicitly after approvals in the current release. See `docs/operations.md` for queue states, checkpoint recovery, version rollback, reconciliation, and alert thresholds.
 
 Do not save a version from one commit and upload build output produced from another.
 

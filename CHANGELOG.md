@@ -4,6 +4,15 @@ All notable changes to Relay are documented here.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-03
+
+### Launch and deployment documentation
+
+- Add a copy-paste launch guide covering credential-free local startup, real-model configuration, private OpenAI Sites deployment, production acceptance, updates, rollback, and common failures.
+- Add an `npm run verify` command for the complete lint, type-check, unit-test, and production-build gate.
+- Extend the production deployment checklist with the HarnessDev sealed-evaluation lifecycle.
+- Clarify that recovery endpoints require an intentional service-authentication path before they can be called by an external scheduler.
+
 ## [0.4.0] - 2026-09-03
 
 ### Self-evolving HarnessDev execution systems
