@@ -104,6 +104,20 @@ export async function POST(request: NextRequest) {
           actor.id,
           now,
         ),
+        env.DB.prepare(
+          `UPDATE run_checkpoints SET status = 'completed', updated_at = ?, lease_owner = NULL, lease_expires_at = NULL
+           WHERE run_id = ? AND workspace_id = ? AND status = 'waiting_approval'
+             AND EXISTS (SELECT 1 FROM approvals
+               WHERE id = ? AND workspace_id = ? AND status = 'rejected' AND decided_by = ? AND decided_at = ?)`,
+        ).bind(
+          now,
+          runId,
+          DEFAULT_WORKSPACE_ID,
+          parsed.data.approvalId,
+          DEFAULT_WORKSPACE_ID,
+          actor.id,
+          now,
+        ),
       ]);
       if (results[0]?.meta.changes !== 1) {
         return NextResponse.json(

@@ -123,6 +123,81 @@ assert(
   'Durable execution was not finalized.',
 );
 
+const deferred = await request('/api/runs', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    agentId: 'agent_customer_care',
+    input: 'Can I get a refund for order #A-1042?',
+    defer: true,
+  }),
+});
+assert(
+  deferred.status === 'running' && deferred.checkpointStatus === 'ready',
+  'Deferred run was not checkpointed.',
+);
+
+const resumedBatch = await request('/api/runs/resume', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ limit: 5 }),
+});
+const resumed = resumedBatch.runs.find((item) => item.id === deferred.id);
+assert(
+  resumed.status === 'succeeded',
+  'A ready checkpoint could not be resumed.',
+);
+
+const completedResume = await fetch(`${baseUrl}/api/runs/resume`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ runId: deferred.id }),
+});
+assert(
+  completedResume.status === 409,
+  'A completed checkpoint was resumed again.',
+);
+
+const storedRuns = await request('/api/runs');
+const storedResumed = storedRuns.runs.find((item) => item.id === deferred.id);
+assert(
+  storedResumed?.checkpoint_status === 'completed',
+  'Resumed run checkpoint was not finalized.',
+);
+assert(
+  Number(storedResumed?.checkpoint_version) >= 2,
+  'Resumed run did not persist checkpoint versions.',
+);
+
+const concurrentlyDeferred = await request('/api/runs', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    agentId: 'agent_customer_care',
+    input: 'Can I get a refund for order #A-1042?',
+    defer: true,
+  }),
+});
+const concurrentResumeResponses = await Promise.all([
+  fetch(`${baseUrl}/api/runs/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ runId: concurrentlyDeferred.id }),
+  }),
+  fetch(`${baseUrl}/api/runs/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ runId: concurrentlyDeferred.id }),
+  }),
+]);
+assert(
+  concurrentResumeResponses
+    .map((response) => response.status)
+    .sort((left, right) => left - right)
+    .join(',') === '200,409',
+  'Concurrent resume requests did not enforce a single checkpoint lease.',
+);
+
 const evaluation = await request('/api/evaluations/run', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -142,6 +217,7 @@ console.log(
       blockedRun: blocked.id,
       approval: gated.approvalId,
       approvedExecution: approved.execution.id,
+      resumedRun: resumed.id,
       evaluation: evaluation.id,
       score: evaluation.score,
     },

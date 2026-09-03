@@ -20,7 +20,15 @@ The queue states are:
 3. Confirm `queuedToolExecutions` returns to zero in `/api/overview`.
 4. Investigate every nonzero `toolExecutionsNeedingAttention` value.
 
-Until a scheduled Worker trigger is configured by the deployment platform, invoke the drain endpoint from an authenticated external scheduler at least once per minute. The endpoint is workspace-scoped, role-protected, bounded to 50 jobs per call, and safe to invoke concurrently.
+## Interrupted agent runs
+
+Every new run has a `run_checkpoints` row. A synchronous request owns a lease while it advances provider and tool steps. If the Worker terminates, the run remains `running`; after the lease expires it becomes claimable without losing its provider context, tool cursor, trace sequence, or accumulated budgets.
+
+Call `POST /api/runs/resume` with `{ "runId": "run_..." }` to recover one interrupted run, or `{ "limit": 5 }` to drain a bounded batch of ready/expired checkpoints. A `409` for a named run means it is actively leased, already terminal, waiting for approval, or otherwise not resumable. Monitor `resumableRunsReady` and `expiredRunLeases` from `/api/overview`; both should normally be zero.
+
+Use `defer: true` with `POST /api/runs` when execution should be queued rather than held open on the initiating HTTP request. The resume drain is safe to invoke concurrently because each worker must win the D1 lease claim.
+
+Until scheduled Worker triggers are configured by the deployment platform, invoke both the tool-execution drain and run-resume endpoints from an authenticated external scheduler at least once per minute. The endpoints are workspace-scoped, role-protected, bounded per call, and safe to invoke concurrently.
 
 ## Unknown outcomes
 
@@ -34,4 +42,4 @@ Alert immediately when `toolExecutionsNeedingAttention` is nonzero. Warn when `q
 
 ## Deployment and rollback
 
-Apply `drizzle/0002_third_the_hood.sql` before deploying code that uses durable executions. The application bootstrap creates the table idempotently for local environments, but production migrations should be explicit and backed up. Rolling application code back does not remove the table; keep it intact so execution history and ambiguous outcomes are not lost.
+Apply `drizzle/0002_third_the_hood.sql` and `drizzle/0003_supreme_typhoid_mary.sql` in order before deploying code that uses durable executions. The application bootstrap creates the tables idempotently for local environments, but production migrations should be explicit and backed up. Rolling application code back does not remove the tables; keep them intact so checkpoints, execution history, and ambiguous outcomes are not lost.

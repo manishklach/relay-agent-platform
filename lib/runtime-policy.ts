@@ -18,6 +18,8 @@ const runtimeEnvironmentSchema = z.object({
   RELAY_RUN_MAX_OUTPUT_TOKENS: positiveInteger(16_000, 200_000),
   RELAY_RUN_MAX_COST_USD: z.coerce.number().positive().max(100).default(1),
   RELAY_RUN_MAX_DURATION_MS: positiveInteger(120_000, 900_000),
+  RELAY_RUN_MAX_CONTEXT_BYTES: positiveInteger(524_288, 8_388_608),
+  RELAY_RUN_MAX_TOOL_RESULT_BYTES: positiveInteger(65_536, 1_048_576),
 });
 
 export type RuntimePolicy = {
@@ -39,6 +41,8 @@ export type ExecutionBudget = {
   maxOutputTokens: number;
   maxCostUsd: number;
   maxDurationMs: number;
+  maxContextBytes: number;
+  maxToolResultBytes: number;
 };
 
 export function loadRuntimePolicy(
@@ -73,6 +77,8 @@ export function loadRuntimePolicy(
       maxOutputTokens: value.RELAY_RUN_MAX_OUTPUT_TOKENS,
       maxCostUsd: value.RELAY_RUN_MAX_COST_USD,
       maxDurationMs: value.RELAY_RUN_MAX_DURATION_MS,
+      maxContextBytes: value.RELAY_RUN_MAX_CONTEXT_BYTES,
+      maxToolResultBytes: value.RELAY_RUN_MAX_TOOL_RESULT_BYTES,
     },
   };
 }
@@ -89,16 +95,27 @@ export class RuntimeLimitError extends Error {
 
 export class ExecutionBudgetTracker {
   private readonly startedAt: number;
-  private toolCalls = 0;
-  private inputTokens = 0;
-  private outputTokens = 0;
-  private estimatedCostUsd = 0;
+  private toolCalls: number;
+  private inputTokens: number;
+  private outputTokens: number;
+  private estimatedCostUsd: number;
 
   constructor(
     private readonly budget: ExecutionBudget,
     private readonly now: () => number = Date.now,
+    initial: {
+      startedAt?: number;
+      toolCalls?: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      estimatedCostUsd?: number;
+    } = {},
   ) {
-    this.startedAt = now();
+    this.startedAt = initial.startedAt ?? now();
+    this.toolCalls = initial.toolCalls ?? 0;
+    this.inputTokens = initial.inputTokens ?? 0;
+    this.outputTokens = initial.outputTokens ?? 0;
+    this.estimatedCostUsd = initial.estimatedCostUsd ?? 0;
   }
 
   beforeTurn(turn: number): void {

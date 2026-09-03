@@ -24,6 +24,16 @@ All notable changes to Relay are documented here.
 - Separate pure tool contracts, built-in implementations, retry policy, and Cloudflare transport for safer extension and unit testing.
 - Add operational queue metrics, a recovery/reconciliation runbook, a generated migration, and end-to-end approval replay coverage.
 
+### Resumable agent runs
+
+- Persist schema-versioned model context, pending tool cursors, trace sequences, and accumulated budgets in D1.
+- Use stable per-run/turn provider idempotency keys and conditional execution leases.
+- Add synchronous, deferred, named-resume, and bounded resume-drain workflows.
+- Persist trace steps incrementally and finalize run/checkpoint/approval state together.
+- Bound serialized UTF-8 context and individual tool results before returning data to a model.
+- Add strict persisted tool-configuration validation and remove authentication coupling from tool transport.
+- Add checkpoint health metrics, a generated migration, failure-mode unit tests, and end-to-end deferred-resume coverage.
+
 ## [0.2.0] - 2026-09-02
 
 Relay 0.2.0 hardens agent tool execution, adds focused unit coverage, clarifies the runtime architecture, and publishes a comprehensive refactoring audit.

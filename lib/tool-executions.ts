@@ -117,6 +117,10 @@ export async function processToolExecution(
         `UPDATE runs SET status = 'succeeded', output = ?, error = NULL, finished_at = ?
          WHERE id = (SELECT run_id FROM tool_executions WHERE id = ? AND status = 'succeeded' AND result_json = ?)`,
       ).bind(successOutput(result), finishedAt, job.id, JSON.stringify(result)),
+      env.DB.prepare(
+        `UPDATE run_checkpoints SET status = 'completed', updated_at = ?, lease_owner = NULL, lease_expires_at = NULL
+         WHERE run_id = ? AND workspace_id = ? AND status = 'waiting_approval'`,
+      ).bind(finishedAt, job.run_id, job.workspace_id),
     ]);
     if (statements[0]?.meta.changes !== 1) {
       throw new Error(
@@ -262,6 +266,10 @@ async function markRunFailed(
       `UPDATE runs SET status = 'failed', error = ?, finished_at = ?
        WHERE id = (SELECT run_id FROM tool_executions WHERE id = ?)`,
     ).bind(error.slice(0, 1_000), now, executionId),
+    env.DB.prepare(
+      `UPDATE run_checkpoints SET status = 'failed', updated_at = ?, lease_owner = NULL, lease_expires_at = NULL
+       WHERE run_id = (SELECT run_id FROM tool_executions WHERE id = ?)`,
+    ).bind(now, executionId),
   ]);
 }
 

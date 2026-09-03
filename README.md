@@ -24,14 +24,14 @@ Relay is a compact, production-shaped control plane for building and operating A
 
 ## Product tour
 
-| View | Purpose |
-| --- | --- |
-| Overview | Operational metrics, recent activity, and the release-readiness score |
-| Agents | Create and inspect agent configurations and tool permissions |
-| Runs | Execute agents and inspect step-by-step traces |
-| Tools | Review built-ins and register public HTTPS integrations |
-| Evaluations | Build regression suites and run deterministic graders |
-| Guardrails | Review pending approvals and accept or reject mutating actions |
+| View        | Purpose                                                               |
+| ----------- | --------------------------------------------------------------------- |
+| Overview    | Operational metrics, recent activity, and the release-readiness score |
+| Agents      | Create and inspect agent configurations and tool permissions          |
+| Runs        | Execute agents and inspect step-by-step traces                        |
+| Tools       | Review built-ins and register public HTTPS integrations               |
+| Evaluations | Build regression suites and run deterministic graders                 |
+| Guardrails  | Review pending approvals and accept or reject mutating actions        |
 
 ## Architecture
 
@@ -180,27 +180,28 @@ Do not commit model keys, connector secrets, repository credentials, or deployme
 
 Hosted deployments read ChatGPT identity headers supplied by Sites. The first authenticated member becomes the workspace owner; later new members default to viewer.
 
-| Role | Intended access |
-| --- | --- |
-| Owner | Full workspace control |
-| Builder | Create and update agents, tools, and evaluation suites |
-| Operator | Execute operational decisions such as approvals |
-| Viewer | Read workspace state and traces |
+| Role     | Intended access                                        |
+| -------- | ------------------------------------------------------ |
+| Owner    | Full workspace control                                 |
+| Builder  | Create and update agents, tools, and evaluation suites |
+| Operator | Execute operational decisions such as approvals        |
+| Viewer   | Read workspace state and traces                        |
 
 For a non-Sites deployment, replace the Sites identity adapter in `app/chatgpt-auth.ts` with your authentication provider before exposing the application publicly.
 
 ## API
 
-| Endpoint | Methods | Purpose |
-| --- | --- | --- |
-| `/api/overview` | GET | Dashboard metrics and recent state |
-| `/api/agents` | GET, POST | List and create agents |
-| `/api/tools` | GET, POST | List and register tools |
-| `/api/runs` | GET, POST | List and execute runs |
-| `/api/approvals` | GET, POST | List and decide approvals |
-| `/api/tool-executions` | GET, POST | Inspect and drain durable mutating-tool jobs |
-| `/api/evaluations` | GET, POST | List and create suites |
-| `/api/evaluations/run` | POST | Execute an evaluation suite |
+| Endpoint               | Methods   | Purpose                                              |
+| ---------------------- | --------- | ---------------------------------------------------- |
+| `/api/overview`        | GET       | Dashboard metrics and recent state                   |
+| `/api/agents`          | GET, POST | List and create agents                               |
+| `/api/tools`           | GET, POST | List and register tools                              |
+| `/api/runs`            | GET, POST | List and execute runs                                |
+| `/api/runs/resume`     | POST      | Claim and resume one or more durable run checkpoints |
+| `/api/approvals`       | GET, POST | List and decide approvals                            |
+| `/api/tool-executions` | GET, POST | Inspect and drain durable mutating-tool jobs         |
+| `/api/evaluations`     | GET, POST | List and create suites                               |
+| `/api/evaluations/run` | POST      | Execute an evaluation suite                          |
 
 ## Security notes
 
@@ -215,6 +216,8 @@ For a non-Sites deployment, replace the Sites identity adapter in `app/chatgpt-a
 - Real-model provider responses are runtime-schema validated and bounded by a deadline and byte cap.
 - Transient model failures use bounded exponential retries with a stable idempotency key.
 - Every run enforces model-turn, tool-call, token, estimated-cost, and wall-clock budgets.
+- Model conversations and tool cursors are checkpointed in D1 with stable per-turn request IDs and expiring leases.
+- Serialized context and individual tool results have independent byte limits.
 - A configured real-model provider fails closed when its credentials are missing; it never silently switches to mock output.
 - Secrets stay in runtime environment variables and are not written to D1 or sent to the browser.
 
@@ -242,7 +245,7 @@ Relay is an end-to-end MVP rather than a hosted multi-tenant commercial service.
 
 ## Runtime safety configuration
 
-Production deployments should set `RELAY_ENV=production`. Runtime bounds have safe defaults and can be tuned with `RELAY_MODEL_TIMEOUT_MS`, `RELAY_MODEL_MAX_RESPONSE_BYTES`, `RELAY_MODEL_MAX_ATTEMPTS`, `RELAY_RUN_MAX_TURNS`, `RELAY_RUN_MAX_TOOL_CALLS`, `RELAY_RUN_MAX_INPUT_TOKENS`, `RELAY_RUN_MAX_OUTPUT_TOKENS`, `RELAY_RUN_MAX_COST_USD`, and `RELAY_RUN_MAX_DURATION_MS`. Invalid, negative, or excessively large values fail configuration validation. See `.env.example` for the defaults.
+Production deployments should set `RELAY_ENV=production`. Runtime bounds have safe defaults and can be tuned with `RELAY_MODEL_TIMEOUT_MS`, `RELAY_MODEL_MAX_RESPONSE_BYTES`, `RELAY_MODEL_MAX_ATTEMPTS`, `RELAY_RUN_MAX_TURNS`, `RELAY_RUN_MAX_TOOL_CALLS`, `RELAY_RUN_MAX_INPUT_TOKENS`, `RELAY_RUN_MAX_OUTPUT_TOKENS`, `RELAY_RUN_MAX_COST_USD`, `RELAY_RUN_MAX_DURATION_MS`, `RELAY_RUN_MAX_CONTEXT_BYTES`, and `RELAY_RUN_MAX_TOOL_RESULT_BYTES`. Invalid, negative, or excessively large values fail configuration validation. See `.env.example` for the defaults.
 
 ## Release
 

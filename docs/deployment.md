@@ -105,7 +105,7 @@ For each release:
 6. Deploy the saved version and wait for success.
 7. Repeat the production acceptance checks.
 
-After deploying the durable execution migration, configure an authenticated scheduler to call `POST /api/tool-executions` at least once per minute. See `docs/operations.md` for queue states, recovery, reconciliation, and alert thresholds.
+After deploying the durable execution migrations, configure an authenticated scheduler to call `POST /api/tool-executions` and `POST /api/runs/resume` at least once per minute. See `docs/operations.md` for queue states, checkpoint recovery, reconciliation, and alert thresholds.
 
 Do not save a version from one commit and upload build output produced from another.
 

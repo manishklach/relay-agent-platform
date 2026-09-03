@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { executeTool } from '../lib/builtin-tools';
 import { failureDisposition } from '../lib/tool-execution-policy';
 import {
+  parseToolConfig,
   supportsIdempotentExecution,
   type ToolDefinition,
 } from '../lib/tool-contract';
@@ -87,5 +88,18 @@ describe('durable tool execution policy', () => {
     });
     expect(replay.reference).toBe(first.reference);
     expect(other.reference).not.toBe(first.reference);
+  });
+
+  it('validates persisted connector configuration instead of trusting a cast', () => {
+    expect(
+      parseToolConfig('{"url":"https://example.com/tool","method":"POST"}'),
+    ).toEqual({
+      url: 'https://example.com/tool',
+      method: 'POST',
+    });
+    expect(() => parseToolConfig('{')).toThrow(/malformed JSON/);
+    expect(() => parseToolConfig('{"url":"javascript:alert(1)"}')).toThrow(
+      /Invalid persisted/,
+    );
   });
 });

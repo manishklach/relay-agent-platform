@@ -16,19 +16,42 @@ import {
   loadRuntimePolicy,
   type RuntimePolicy,
 } from './runtime-policy';
+import {
+  advanceToModel,
+  assertContextWithinLimit,
+  boundToolResult,
+  createModelCheckpoint,
+  parseModelCheckpoint,
+  type ModelRuntimeCheckpoint,
+} from './runtime-checkpoint';
 import { getAllowedTool } from './tool-policy';
 import {
   executeRuntimeTool,
   executeTool,
   loadRuntimeTools,
   toolCatalog,
+  type ToolDefinition,
 } from './tools';
 import type { AgentConfig, RuntimeResult, RuntimeStep } from './types';
 
 export type RuntimeDependencies = {
   policy?: RuntimePolicy;
   providers?: ProviderRegistry;
+  runId?: string;
+  checkpoint?: ModelRuntimeCheckpoint;
+  tools?: ToolDefinition[];
+  onProgress?: (progress: {
+    checkpoint: ModelRuntimeCheckpoint;
+    steps: readonly RuntimeStep[];
+  }) => Promise<void>;
 };
+
+export class RuntimePersistenceError extends Error {
+  constructor(cause: unknown) {
+    super('Failed to persist resumable runtime progress.', { cause });
+    this.name = 'RuntimePersistenceError';
+  }
+}
 
 export async function executeAgent(
   agent: AgentConfig,
@@ -62,6 +85,7 @@ export async function executeAgent(
       input,
       providers.resolve(agent.provider),
       policy,
+      dependencies,
     );
   } catch (error) {
     return failedResult(input, error);
@@ -187,100 +211,140 @@ async function executeModelAgent(
   input: string,
   provider: ModelProvider,
   policy: RuntimePolicy,
+  dependencies: RuntimeDependencies,
 ): Promise<RuntimeResult> {
   const steps: RuntimeStep[] = [];
-  const inputItems: Array<Record<string, unknown>> = [
-    { role: 'user', content: input },
-  ];
-  let inputTokens = 0;
-  let outputTokens = 0;
-  const budget = new ExecutionBudgetTracker(policy.budget);
+  const runId = dependencies.runId ?? `ephemeral_${crypto.randomUUID()}`;
+  const checkpoint = dependencies.checkpoint
+    ? parseModelCheckpoint(dependencies.checkpoint)
+    : createModelCheckpoint(runId, input);
+  const budget = new ExecutionBudgetTracker(policy.budget, Date.now, {
+    startedAt: checkpoint.startedAt,
+    toolCalls: checkpoint.toolCalls,
+    inputTokens: checkpoint.inputTokens,
+    outputTokens: checkpoint.outputTokens,
+    estimatedCostUsd: checkpoint.estimatedCostUsd,
+  });
+  const persist = async (value?: RuntimeStep | readonly RuntimeStep[]) => {
+    try {
+      const steps = value ? (Array.isArray(value) ? value : [value]) : [];
+      await dependencies.onProgress?.({ checkpoint, steps });
+    } catch (error) {
+      throw new RuntimePersistenceError(error);
+    }
+  };
 
   try {
-    const availableTools = await loadRuntimeTools(
-      agent.workspaceId,
-      agent.allowedTools,
-    );
-    for (let turn = 0; ; turn += 1) {
-      budget.beforeTurn(turn);
-      const modelStarted = Date.now();
-      const response = await provider.createResponse({
-        agent,
-        input: inputItems,
-        tools: availableTools,
-        requestId: `model_${crypto.randomUUID()}`,
-      });
-      const turnInputTokens =
-        response.usage?.input_tokens ??
-        estimateTokens(JSON.stringify(inputItems));
-      const turnOutputTokens =
-        response.usage?.output_tokens ??
-        estimateTokens(
-          JSON.stringify(response.output ?? response.output_text ?? ''),
+    const availableTools =
+      dependencies.tools ??
+      (await loadRuntimeTools(agent.workspaceId, agent.allowedTools));
+    for (;;) {
+      if (checkpoint.phase === 'model') {
+        budget.beforeTurn(checkpoint.turn);
+        assertContextWithinLimit(
+          checkpoint.inputItems,
+          policy.budget.maxContextBytes,
         );
-      inputTokens += turnInputTokens;
-      outputTokens += turnOutputTokens;
-      budget.recordModelUsage(
-        turnInputTokens,
-        turnOutputTokens,
-        estimateCost(turnInputTokens, turnOutputTokens),
-      );
-      const outputItems = response.output ?? [];
-      const toolCalls = outputItems.filter(
-        (item) => item.type === 'function_call' && item.name && item.call_id,
-      );
-      const responseText =
-        response.output_text ||
-        outputItems
-          .filter((item) => item.type === 'message')
-          .flatMap((item) => item.content ?? [])
-          .filter((item) => item.type === 'output_text')
-          .map((item) => item.text ?? '')
-          .join('\n');
-
-      steps.push(
-        step(
-          steps.length,
+        await persist();
+        const modelStarted = Date.now();
+        const response = await provider.createResponse({
+          agent,
+          input: checkpoint.inputItems,
+          tools: availableTools,
+          requestId: checkpoint.requestId,
+        });
+        const turnInputTokens =
+          response.usage?.input_tokens ??
+          estimateTokens(JSON.stringify(checkpoint.inputItems));
+        const turnOutputTokens =
+          response.usage?.output_tokens ??
+          estimateTokens(
+            JSON.stringify(response.output ?? response.output_text ?? ''),
+          );
+        const turnCost = estimateCost(turnInputTokens, turnOutputTokens);
+        budget.recordModelUsage(turnInputTokens, turnOutputTokens, turnCost);
+        checkpoint.inputTokens += turnInputTokens;
+        checkpoint.outputTokens += turnOutputTokens;
+        checkpoint.estimatedCostUsd = Number(
+          (checkpoint.estimatedCostUsd + turnCost).toFixed(6),
+        );
+        const outputItems = response.output ?? [];
+        const toolCalls = outputItems.filter(
+          (item) => item.type === 'function_call' && item.name && item.call_id,
+        );
+        const responseText =
+          response.output_text ||
+          outputItems
+            .filter((item) => item.type === 'message')
+            .flatMap((item) => item.content ?? [])
+            .filter((item) => item.type === 'output_text')
+            .map((item) => item.text ?? '')
+            .join('\n');
+        const modelStep = step(
+          checkpoint.nextSequence++,
           'model',
           'Model response',
           'succeeded',
-          { model: agent.model, turn },
+          {
+            model: agent.model,
+            turn: checkpoint.turn,
+            requestId: checkpoint.requestId,
+          },
           { toolCalls: toolCalls.length, characters: responseText.length },
           Date.now() - modelStarted,
-        ),
-      );
+        );
+        steps.push(modelStep);
 
-      if (!toolCalls.length) {
-        const inspectedOutput = inspectModelOutput(responseText, agent);
-        if (inspectedOutput.step) {
-          inspectedOutput.step.sequence = steps.length;
-          steps.push(inspectedOutput.step);
+        if (!toolCalls.length) {
+          const inspectedOutput = inspectModelOutput(responseText, agent);
+          if (inspectedOutput.step) {
+            inspectedOutput.step.sequence = checkpoint.nextSequence++;
+            steps.push(inspectedOutput.step);
+          }
+          const output = inspectedOutput.blocked
+            ? (inspectedOutput.message ?? 'Model response blocked by policy.')
+            : sanitizeOutput(responseText, agent);
+          return {
+            status: 'succeeded',
+            output,
+            steps,
+            inputTokens: checkpoint.inputTokens || estimateTokens(input),
+            outputTokens: checkpoint.outputTokens || estimateTokens(output),
+            estimatedCostUsd: checkpoint.estimatedCostUsd,
+          };
         }
-        const output = inspectedOutput.blocked
-          ? (inspectedOutput.message ?? 'Model response blocked by policy.')
-          : sanitizeOutput(responseText, agent);
-        return {
-          status: 'succeeded',
-          output,
-          steps,
-          inputTokens: inputTokens || estimateTokens(input),
-          outputTokens: outputTokens || estimateTokens(output),
-          estimatedCostUsd: estimateCost(inputTokens, outputTokens),
-        };
+
+        const nextInputItems = [...checkpoint.inputItems, ...outputItems];
+        assertContextWithinLimit(nextInputItems, policy.budget.maxContextBytes);
+        checkpoint.inputItems = nextInputItems;
+        checkpoint.pendingCalls = toolCalls.map((call) => ({
+          ...call,
+          type: 'function_call' as const,
+          call_id: call.call_id as string,
+          name: call.name as string,
+          arguments: call.arguments ?? '{}',
+        }));
+        checkpoint.toolIndex = 0;
+        checkpoint.phase = 'tools';
+        await persist(modelStep);
       }
 
-      inputItems.push(...outputItems);
-      for (const call of toolCalls) {
+      while (
+        checkpoint.phase === 'tools' &&
+        checkpoint.toolIndex < checkpoint.pendingCalls.length
+      ) {
+        const call = checkpoint.pendingCalls[checkpoint.toolIndex];
         budget.recordToolCall();
-        const toolName = call.name ?? '';
-        const callId = call.call_id ?? '';
+        checkpoint.toolCalls += 1;
+        const toolName = call.name;
+        const callId = call.call_id;
         const definition = getAllowedTool(
           toolName,
           agent.allowedTools,
           availableTools,
         );
         if (!definition) {
-          inputItems.push({
+          checkpoint.inputItems.push({
             type: 'function_call_output',
             call_id: callId,
             output: JSON.stringify({
@@ -289,7 +353,7 @@ async function executeModelAgent(
           });
           steps.push(
             step(
-              steps.length,
+              checkpoint.nextSequence++,
               'guardrail',
               'Tool allowlist',
               'blocked',
@@ -298,14 +362,16 @@ async function executeModelAgent(
               1,
             ),
           );
+          checkpoint.toolIndex += 1;
+          await persist(steps.at(-1));
           continue;
         }
 
-        const args = safeJsonObject(call.arguments ?? '{}');
+        const args = parseToolArguments(call.arguments ?? '{}');
         if (definition.mutating && agent.guardrails.requireApprovalForWrites) {
           steps.push(
             step(
-              steps.length,
+              checkpoint.nextSequence++,
               'approval',
               definition.name,
               'pending',
@@ -318,33 +384,34 @@ async function executeModelAgent(
             status: 'waiting_approval',
             output: `The agent requested ${definition.name}. Operator approval is required before execution.`,
             steps,
-            inputTokens,
-            outputTokens,
-            estimatedCostUsd: estimateCost(inputTokens, outputTokens),
+            inputTokens: checkpoint.inputTokens,
+            outputTokens: checkpoint.outputTokens,
+            estimatedCostUsd: checkpoint.estimatedCostUsd,
             pendingApproval: { toolName: definition.name, arguments: args },
           };
         }
 
         const toolStarted = Date.now();
-        const result = await executeRuntimeTool(definition, args);
+        const result = await executeRuntimeTool(definition, args, {
+          idempotencyKey: `${checkpoint.requestId}:tool:${checkpoint.toolIndex}`,
+        });
         const inspectedToolOutput = inspectToolOutput(result, agent);
         if (inspectedToolOutput.blocked) {
-          steps.push(
-            step(
-              steps.length,
-              'tool',
-              definition.name,
-              'blocked',
-              args,
-              { withheld: true },
-              Date.now() - toolStarted,
-            ),
+          const blockedStep = step(
+            checkpoint.nextSequence++,
+            'tool',
+            definition.name,
+            'blocked',
+            args,
+            { withheld: true },
+            Date.now() - toolStarted,
           );
+          steps.push(blockedStep);
           if (inspectedToolOutput.step) {
-            inspectedToolOutput.step.sequence = steps.length;
+            inspectedToolOutput.step.sequence = checkpoint.nextSequence++;
             steps.push(inspectedToolOutput.step);
           }
-          inputItems.push({
+          checkpoint.inputItems.push({
             type: 'function_call_output',
             call_id: callId,
             output: JSON.stringify({
@@ -352,45 +419,64 @@ async function executeModelAgent(
                 'Tool output was withheld because it contained untrusted instructions.',
             }),
           });
+          checkpoint.toolIndex += 1;
+          await persist(
+            inspectedToolOutput.step
+              ? [blockedStep, inspectedToolOutput.step]
+              : [blockedStep],
+          );
           continue;
         }
+        const boundedResult = boundToolResult(
+          result,
+          policy.budget.maxToolResultBytes,
+        );
         steps.push(
           step(
-            steps.length,
+            checkpoint.nextSequence++,
             'tool',
             definition.name,
             'succeeded',
             args,
-            result,
+            boundedResult.value,
             Date.now() - toolStarted,
           ),
         );
-        inputItems.push({
-          type: 'function_call_output',
-          call_id: callId,
-          output: JSON.stringify(result),
-        });
+        const nextInputItems = [
+          ...checkpoint.inputItems,
+          {
+            type: 'function_call_output',
+            call_id: callId,
+            output: boundedResult.serialized,
+          },
+        ];
+        assertContextWithinLimit(nextInputItems, policy.budget.maxContextBytes);
+        checkpoint.inputItems = nextInputItems;
+        checkpoint.toolIndex += 1;
+        await persist(steps.at(-1));
       }
+      advanceToModel(checkpoint, runId);
+      await persist();
     }
   } catch (error) {
-    steps.push(
-      step(
-        steps.length,
-        'model',
-        'Runtime failure',
-        'failed',
-        { provider: provider.name },
-        { code: errorCode(error) },
-        0,
-      ),
+    if (error instanceof RuntimePersistenceError) throw error;
+    const failureStep = step(
+      checkpoint.nextSequence++,
+      'model',
+      'Runtime failure',
+      'failed',
+      { provider: provider.name },
+      { code: errorCode(error) },
+      0,
     );
+    steps.push(failureStep);
     return {
       status: 'failed',
       output: '',
       steps,
-      inputTokens,
-      outputTokens,
-      estimatedCostUsd: estimateCost(inputTokens, outputTokens),
+      inputTokens: checkpoint.inputTokens,
+      outputTokens: checkpoint.outputTokens,
+      estimatedCostUsd: checkpoint.estimatedCostUsd,
       error: error instanceof Error ? error.message : 'Unknown runtime error',
     };
   }
@@ -469,14 +555,15 @@ function blockedToolResult(
   );
 }
 
-function safeJsonObject(value: string): Record<string, unknown> {
+function parseToolArguments(value: string): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Tool arguments must be a JSON object.');
+    }
+    return parsed as Record<string, unknown>;
   } catch {
-    return {};
+    throw new Error('Model returned malformed tool arguments.');
   }
 }
 

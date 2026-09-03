@@ -14,6 +14,8 @@ const budget: ExecutionBudget = {
   maxOutputTokens: 50,
   maxCostUsd: 0.25,
   maxDurationMs: 1_000,
+  maxContextBytes: 1_024,
+  maxToolResultBytes: 256,
 };
 
 describe('runtime configuration', () => {
@@ -25,6 +27,8 @@ describe('runtime configuration', () => {
     expect(policy.budget.maxTurns).toBe(7);
     expect(policy.budget.maxCostUsd).toBe(0.5);
     expect(policy.openAi.timeoutMs).toBe(30_000);
+    expect(policy.budget.maxContextBytes).toBe(524_288);
+    expect(policy.budget.maxToolResultBytes).toBe(65_536);
   });
 
   it('rejects insecure production provider URLs', () => {
@@ -80,5 +84,26 @@ describe('execution budgets', () => {
     now += 1_001;
     expect(() => tracker.assertDuration()).toThrow(RuntimeLimitError);
     expect(() => tracker.assertDuration()).toThrow(/total execution deadline/);
+  });
+
+  it('restores accumulated usage and elapsed time from a durable checkpoint', () => {
+    let now = 10_900;
+    const tracker = new ExecutionBudgetTracker(budget, () => now, {
+      startedAt: 10_000,
+      toolCalls: 2,
+      inputTokens: 90,
+      outputTokens: 40,
+      estimatedCostUsd: 0.2,
+    });
+    expect(() => tracker.recordToolCall()).toThrow(
+      expect.objectContaining({ code: 'max_tool_calls' }),
+    );
+    expect(() => tracker.recordModelUsage(11, 0, 0)).toThrow(
+      expect.objectContaining({ code: 'max_input_tokens' }),
+    );
+    now = 11_001;
+    expect(() => tracker.assertDuration()).toThrow(
+      expect.objectContaining({ code: 'max_duration' }),
+    );
   });
 });
