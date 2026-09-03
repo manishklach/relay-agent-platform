@@ -61,7 +61,10 @@ export async function POST(request: NextRequest) {
 
 async function resumeRun(runId: string, actor: Actor) {
   const run = await env.DB.prepare(
-    `SELECT id, agent_id, input, status, created_at FROM runs WHERE id = ? AND workspace_id = ?`,
+    `SELECT runs.id, runs.agent_id, runs.input, runs.status, runs.created_at,
+      run_agent_versions.agent_version_id
+     FROM runs LEFT JOIN run_agent_versions ON run_agent_versions.run_id = runs.id
+     WHERE runs.id = ? AND runs.workspace_id = ?`,
   )
     .bind(runId, DEFAULT_WORKSPACE_ID)
     .first<Record<string, unknown>>();
@@ -70,7 +73,10 @@ async function resumeRun(runId: string, actor: Actor) {
     throw new Response('Only interrupted running runs can be resumed', {
       status: 409,
     });
-  const agent = await getAgent(String(run.agent_id));
+  const agent = await getAgent(
+    String(run.agent_id),
+    typeof run.agent_version_id === 'string' ? run.agent_version_id : undefined,
+  );
   if (!agent) throw new Response('Agent not found', { status: 404 });
   if (agent.status !== 'live')
     throw new Response('Agent is not live', { status: 409 });

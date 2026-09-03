@@ -4,6 +4,14 @@ All notable changes to Relay are documented here.
 
 ## [Unreleased]
 
+### Versioned graphs and governed self-improvement
+
+- Add immutable agent versions containing prompts, provider/model settings, tool allowlists, and guardrails.
+- Add strict versioned graph schemas, deterministic conditional transitions, explicit loop budgets, pinned agent versions, leased checkpoints, and durable child runs.
+- Pause and resume graph nodes across human approval without consuming a second visit.
+- Add evaluation-gated improvement candidates with single-evaluator claims, score thresholds, owner approval, stale-base protection, explicit activation, and audited rollback copies.
+- Extend the smoke suite across graph execution, graph approval/resume, candidate evaluation/activation, and rollback.
+
 ### Provider and runtime production safety
 
 - Add an explicit provider registry and a runtime-validated OpenAI-compatible response boundary.

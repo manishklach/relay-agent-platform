@@ -90,6 +90,8 @@ Open the production URL and verify:
 - a refund action pauses in `waiting_approval`;
 - approving or rejecting the action updates the run and approval trace;
 - the release-readiness evaluation completes with three cases;
+- a bounded graph run completes and its agent node references an immutable version;
+- an improvement candidate is evaluated, owner-approved, activated, and rolled back;
 - creating an agent or tool is restricted according to the active member role;
 - no API key or secret appears in browser network responses or page source.
 
@@ -105,7 +107,7 @@ For each release:
 6. Deploy the saved version and wait for success.
 7. Repeat the production acceptance checks.
 
-After deploying the durable execution migrations, configure an authenticated scheduler to call `POST /api/tool-executions` and `POST /api/runs/resume` at least once per minute. See `docs/operations.md` for queue states, checkpoint recovery, reconciliation, and alert thresholds.
+After deploying the durable execution migrations, configure an authenticated scheduler to call `POST /api/tool-executions` and `POST /api/runs/resume` at least once per minute. Graph runs are resumed explicitly after approvals in the current release. See `docs/operations.md` for queue states, checkpoint recovery, version rollback, reconciliation, and alert thresholds.
 
 Do not save a version from one commit and upload build output produced from another.
 

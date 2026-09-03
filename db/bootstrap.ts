@@ -161,6 +161,83 @@ const schemaStatements = [
     finished_at INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS idx_eval_runs_suite_created ON evaluation_runs(suite_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS agent_versions (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    agent_id TEXT NOT NULL REFERENCES agents(id),
+    version INTEGER NOT NULL,
+    config_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('candidate','active','archived')),
+    source TEXT NOT NULL CHECK(source IN ('manual','improvement','rollback')),
+    parent_version_id TEXT,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_versions_number ON agent_versions(agent_id, version)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_versions_status ON agent_versions(agent_id, status)`,
+  `CREATE TABLE IF NOT EXISTS run_agent_versions (
+    run_id TEXT PRIMARY KEY REFERENCES runs(id),
+    agent_version_id TEXT NOT NULL REFERENCES agent_versions(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS graphs (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('draft','live','paused')),
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_graphs_workspace_status ON graphs(workspace_id, status)`,
+  `CREATE TABLE IF NOT EXISTS graph_versions (
+    id TEXT PRIMARY KEY,
+    graph_id TEXT NOT NULL REFERENCES graphs(id),
+    version INTEGER NOT NULL,
+    definition_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('candidate','active','archived')),
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_versions_number ON graph_versions(graph_id, version)`,
+  `CREATE INDEX IF NOT EXISTS idx_graph_versions_status ON graph_versions(graph_id, status)`,
+  `CREATE TABLE IF NOT EXISTS graph_runs (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    graph_id TEXT NOT NULL REFERENCES graphs(id),
+    graph_version_id TEXT NOT NULL REFERENCES graph_versions(id),
+    status TEXT NOT NULL CHECK(status IN ('ready','running','waiting_approval','completed','failed')),
+    checkpoint_json TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 0,
+    lease_owner TEXT,
+    lease_expires_at INTEGER,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    finished_at INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_graph_runs_workspace_status ON graph_runs(workspace_id, status, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_graph_runs_lease ON graph_runs(status, lease_expires_at)`,
+  `CREATE TABLE IF NOT EXISTS improvement_proposals (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    agent_id TEXT NOT NULL REFERENCES agents(id),
+    base_version_id TEXT NOT NULL REFERENCES agent_versions(id),
+    candidate_version_id TEXT NOT NULL REFERENCES agent_versions(id),
+    evaluation_suite_id TEXT NOT NULL REFERENCES evaluation_suites(id),
+    evaluation_run_id TEXT REFERENCES evaluation_runs(id),
+    minimum_score REAL NOT NULL,
+    score REAL,
+    status TEXT NOT NULL CHECK(status IN ('pending_evaluation','awaiting_approval','approved','rejected','activated')),
+    rationale TEXT NOT NULL,
+    proposed_by TEXT NOT NULL,
+    reviewed_by TEXT,
+    created_at INTEGER NOT NULL,
+    reviewed_at INTEGER,
+    activated_at INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_improvements_workspace_status ON improvement_proposals(workspace_id, status, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_improvements_agent ON improvement_proposals(agent_id, created_at)`,
   `CREATE TABLE IF NOT EXISTS audit_logs (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces(id),
@@ -221,6 +298,52 @@ async function initialize() {
         now,
         now,
       ),
+    db
+      .prepare(`INSERT OR IGNORE INTO agent_versions (
+        id, workspace_id, agent_id, version, config_json, status, source,
+        parent_version_id, created_by, created_at
+      ) VALUES (?, ?, ?, 1, ?, 'active', 'manual', NULL, 'system', ?)`)
+      .bind(
+        'agent_version_customer_care_1',
+        'ws_default',
+        'agent_customer_care',
+        JSON.stringify({
+          systemPrompt:
+            'You are a careful customer-care agent. Verify the account and applicable policy before answering. Never claim an action succeeded unless a tool confirms it. Escalate risky or ambiguous actions for human approval.',
+          provider: 'mock',
+          model: 'relay-sim-1',
+          temperature: 0.2,
+          allowedTools: ['lookup_account', 'lookup_policy', 'issue_refund'],
+          guardrails: {
+            redactPii: true,
+            blockPromptInjection: true,
+            requireApprovalForWrites: true,
+          },
+        }),
+        now,
+      ),
+    db.prepare(`INSERT OR IGNORE INTO agent_versions (
+      id, workspace_id, agent_id, version, config_json, status, source,
+      parent_version_id, created_by, created_at
+    )
+    SELECT 'agent_version_legacy_' || agents.id, agents.workspace_id, agents.id, 1,
+      json_object(
+        'systemPrompt', agents.system_prompt,
+        'provider', agents.provider,
+        'model', agents.model,
+        'temperature', agents.temperature,
+        'allowedTools', json(agents.allowed_tools),
+        'guardrails', json_object(
+          'redactPii', COALESCE(json_extract(agents.guardrail_config, '$.redactPii'), 1),
+          'blockPromptInjection', COALESCE(json_extract(agents.guardrail_config, '$.blockPromptInjection'), 1),
+          'requireApprovalForWrites', COALESCE(json_extract(agents.guardrail_config, '$.requireApprovalForWrites'), 1)
+        )
+      ),
+      'active', 'manual', NULL, agents.created_by, agents.created_at
+    FROM agents
+    WHERE NOT EXISTS (
+      SELECT 1 FROM agent_versions WHERE agent_versions.agent_id = agents.id
+    )`),
     ...[
       [
         'tool_lookup_account',

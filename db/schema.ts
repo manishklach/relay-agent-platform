@@ -303,6 +303,168 @@ export const evaluationRuns = sqliteTable(
   ],
 );
 
+export const agentVersions = sqliteTable(
+  'agent_versions',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id),
+    version: integer('version').notNull(),
+    configJson: text('config_json').notNull(),
+    status: text('status', {
+      enum: ['candidate', 'active', 'archived'],
+    }).notNull(),
+    source: text('source', {
+      enum: ['manual', 'improvement', 'rollback'],
+    }).notNull(),
+    parentVersionId: text('parent_version_id'),
+    createdBy: text('created_by').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_agent_versions_number').on(table.agentId, table.version),
+    index('idx_agent_versions_status').on(table.agentId, table.status),
+  ],
+);
+
+export const runAgentVersions = sqliteTable('run_agent_versions', {
+  runId: text('run_id')
+    .primaryKey()
+    .references(() => runs.id),
+  agentVersionId: text('agent_version_id')
+    .notNull()
+    .references(() => agentVersions.id),
+});
+
+export const graphs = sqliteTable(
+  'graphs',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    status: text('status', { enum: ['draft', 'live', 'paused'] }).notNull(),
+    createdBy: text('created_by').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    index('idx_graphs_workspace_status').on(table.workspaceId, table.status),
+  ],
+);
+
+export const graphVersions = sqliteTable(
+  'graph_versions',
+  {
+    id: text('id').primaryKey(),
+    graphId: text('graph_id')
+      .notNull()
+      .references(() => graphs.id),
+    version: integer('version').notNull(),
+    definitionJson: text('definition_json').notNull(),
+    status: text('status', {
+      enum: ['candidate', 'active', 'archived'],
+    }).notNull(),
+    createdBy: text('created_by').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_graph_versions_number').on(table.graphId, table.version),
+    index('idx_graph_versions_status').on(table.graphId, table.status),
+  ],
+);
+
+export const graphRuns = sqliteTable(
+  'graph_runs',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    graphId: text('graph_id')
+      .notNull()
+      .references(() => graphs.id),
+    graphVersionId: text('graph_version_id')
+      .notNull()
+      .references(() => graphVersions.id),
+    status: text('status', {
+      enum: ['ready', 'running', 'waiting_approval', 'completed', 'failed'],
+    }).notNull(),
+    checkpointJson: text('checkpoint_json').notNull(),
+    version: integer('version').notNull().default(0),
+    leaseOwner: text('lease_owner'),
+    leaseExpiresAt: integer('lease_expires_at'),
+    createdBy: text('created_by').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    finishedAt: integer('finished_at'),
+  },
+  (table) => [
+    index('idx_graph_runs_workspace_status').on(
+      table.workspaceId,
+      table.status,
+      table.updatedAt,
+    ),
+    index('idx_graph_runs_lease').on(table.status, table.leaseExpiresAt),
+  ],
+);
+
+export const improvementProposals = sqliteTable(
+  'improvement_proposals',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id),
+    baseVersionId: text('base_version_id')
+      .notNull()
+      .references(() => agentVersions.id),
+    candidateVersionId: text('candidate_version_id')
+      .notNull()
+      .references(() => agentVersions.id),
+    evaluationSuiteId: text('evaluation_suite_id')
+      .notNull()
+      .references(() => evaluationSuites.id),
+    evaluationRunId: text('evaluation_run_id').references(
+      () => evaluationRuns.id,
+    ),
+    minimumScore: real('minimum_score').notNull(),
+    score: real('score'),
+    status: text('status', {
+      enum: [
+        'pending_evaluation',
+        'awaiting_approval',
+        'approved',
+        'rejected',
+        'activated',
+      ],
+    }).notNull(),
+    rationale: text('rationale').notNull(),
+    proposedBy: text('proposed_by').notNull(),
+    reviewedBy: text('reviewed_by'),
+    createdAt: integer('created_at').notNull(),
+    reviewedAt: integer('reviewed_at'),
+    activatedAt: integer('activated_at'),
+  },
+  (table) => [
+    index('idx_improvements_workspace_status').on(
+      table.workspaceId,
+      table.status,
+      table.createdAt,
+    ),
+    index('idx_improvements_agent').on(table.agentId, table.createdAt),
+  ],
+);
+
 export const auditLogs = sqliteTable(
   'audit_logs',
   {

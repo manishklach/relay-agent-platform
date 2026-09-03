@@ -1,5 +1,6 @@
 export type AgentConfig = {
   id: string;
+  versionId?: string;
   workspaceId: string;
   name: string;
   description: string;

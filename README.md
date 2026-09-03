@@ -2,6 +2,8 @@
 
 Relay is a compact, production-shaped control plane for building and operating AI agents. It gives a solo founder one place to configure agents, connect tools, execute workflows, inspect traces, approve risky actions, and run regression evaluations.
 
+Its orchestration model is `Prompts → immutable Agent versions → bounded Loops → durable Graphs → Evaluations → human-gated Improvements`. “Self-improvement” creates and tests a candidate version; a model cannot silently rewrite the live configuration.
+
 [![Live demo](https://img.shields.io/badge/live_demo-open-6d5efc)](https://relay-agent-operations.abc123xyza.chatgpt.site)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6)](https://www.typescriptlang.org/)
 [![Cloudflare D1](https://img.shields.io/badge/storage-Cloudflare_D1-f38020)](https://developers.cloudflare.com/d1/)
@@ -191,17 +193,23 @@ For a non-Sites deployment, replace the Sites identity adapter in `app/chatgpt-a
 
 ## API
 
-| Endpoint               | Methods   | Purpose                                              |
-| ---------------------- | --------- | ---------------------------------------------------- |
-| `/api/overview`        | GET       | Dashboard metrics and recent state                   |
-| `/api/agents`          | GET, POST | List and create agents                               |
-| `/api/tools`           | GET, POST | List and register tools                              |
-| `/api/runs`            | GET, POST | List and execute runs                                |
-| `/api/runs/resume`     | POST      | Claim and resume one or more durable run checkpoints |
-| `/api/approvals`       | GET, POST | List and decide approvals                            |
-| `/api/tool-executions` | GET, POST | Inspect and drain durable mutating-tool jobs         |
-| `/api/evaluations`     | GET, POST | List and create suites                               |
-| `/api/evaluations/run` | POST      | Execute an evaluation suite                          |
+| Endpoint                     | Methods   | Purpose                                                  |
+| ---------------------------- | --------- | -------------------------------------------------------- |
+| `/api/overview`              | GET       | Dashboard metrics and recent state                       |
+| `/api/agents`                | GET, POST | List and create agents                                   |
+| `/api/agents/versions`       | GET, POST | Inspect immutable versions or create an audited rollback |
+| `/api/tools`                 | GET, POST | List and register tools                                  |
+| `/api/runs`                  | GET, POST | List and execute runs                                    |
+| `/api/runs/resume`           | POST      | Claim and resume one or more durable run checkpoints     |
+| `/api/approvals`             | GET, POST | List and decide approvals                                |
+| `/api/tool-executions`       | GET, POST | Inspect and drain durable mutating-tool jobs             |
+| `/api/evaluations`           | GET, POST | List and create suites                                   |
+| `/api/evaluations/run`       | POST      | Execute an evaluation suite                              |
+| `/api/graphs`                | GET, POST | List and create immutable, version-pinned graphs         |
+| `/api/graphs/run`            | GET, POST | Start or resume durable bounded graph runs               |
+| `/api/improvements`          | GET, POST | List or propose candidate agent versions                 |
+| `/api/improvements/evaluate` | POST      | Claim and evaluate one candidate against a suite         |
+| `/api/improvements/decide`   | POST      | Approve, reject, or activate a passing candidate         |
 
 ## Security notes
 
@@ -241,7 +249,7 @@ vite.config.ts          Vinext, Sites, Tailwind, and Cloudflare setup
 
 ## Current scope
 
-Relay is an end-to-end MVP rather than a hosted multi-tenant commercial service. The first release deliberately uses one visible workspace, deterministic contains/not-contains evaluation graders, public HTTP connectors without stored credentials, and no remote MCP transport. These boundaries keep the system understandable and deployable by one person while preserving clear extension points.
+Relay is an end-to-end MVP rather than a hosted multi-tenant commercial service. It deliberately uses one visible workspace, deterministic contains/not-contains evaluation graders, public HTTP connectors without stored credentials, and no remote MCP transport. Graph nodes currently invoke agents or terminate; more node types can be added behind the versioned graph schema. These boundaries keep the system understandable and deployable by one person while preserving clear extension points.
 
 ## Runtime safety configuration
 

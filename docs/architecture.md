@@ -18,6 +18,26 @@ Agent Studio
   -> release decision
 ```
 
+## Loops, graphs, and controlled improvement
+
+Graph definitions are strict, schema-versioned JSON. A graph version pins every agent node to an immutable `agent_versions` row, so activating a later prompt or model cannot change an in-flight or historical graph. Directed cycles are supported, but `maxSteps` and `maxVisitsPerNode` are mandatory and bounded by the schema. Equal-priority matching transitions fail closed rather than selecting an edge nondeterministically.
+
+Each `graph_runs` row contains a validated checkpoint, optimistic version counter, and execution lease. Agent nodes receive deterministic child run IDs derived from graph run, node, and visit. Those child runs use the normal resumable model/tool checkpoint and idempotency controls. A write approval pauses the graph without consuming another node visit; after the durable child action finishes, resuming the graph advances the same visit.
+
+Recursive improvement is a governed feedback cycle, not unrestricted runtime mutation:
+
+```text
+telemetry or evaluation failure
+  -> candidate immutable agent version
+  -> deterministic evaluation suite and minimum score
+  -> owner approval
+  -> stale-base concurrency check
+  -> explicit activation
+  -> monitored live version or audited rollback copy
+```
+
+Candidates that miss their threshold are rejected automatically. Passing candidates remain inactive until an owner approves and separately activates them. Activation fails if the base version is no longer active. Rollback creates a new monotonic version copied from a selected known-good snapshot, preserving the complete history.
+
 ## Runtime
 
 The deterministic `mock` provider makes local development and evaluation reproducible without credentials. When `OPENAI_API_KEY` is present, an agent configured with provider `openai` uses the Responses API at `OPENAI_BASE_URL`. The runtime preserves response output items across tool turns, returns function-call outputs by `call_id`, disables provider-side storage, and caps each agent run at four model turns.
@@ -42,6 +62,11 @@ The enforceable boundaries are independent of the matcher: the runtime exposes o
 - `approvals`: human decisions for state-changing calls.
 - `tool_executions`: durable, leased, idempotency-keyed jobs for approved external actions.
 - `evaluation_suites`, `evaluation_cases`, and `evaluation_runs`: regression gates.
+- `agent_versions`: immutable prompt, provider, model, tool allowlist, and guardrail snapshots.
+- `run_agent_versions`: the exact immutable agent snapshot used by each new run.
+- `graphs` and `graph_versions`: logical workflows and immutable typed definitions with pinned agent versions.
+- `graph_runs`: leased, resumable graph cursors and node outputs.
+- `improvement_proposals`: candidate/base lineage, evaluation threshold and result, review, and activation state.
 - `audit_logs`: attributed administrative and operational actions.
 
 Cloudflare D1 is the authoritative store. `db/schema.ts` defines the Drizzle schema, generated migrations live in `drizzle/`, and `db/bootstrap.ts` provides idempotent local initialization and reference data.

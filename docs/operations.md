@@ -36,10 +36,18 @@ Never blindly replay an `unknown` execution. Use its approval ID, tool name, per
 
 HTTP tools should advertise `supportsIdempotency` only when the downstream endpoint durably deduplicates the `Idempotency-Key` header and returns the original result for replays. A header that is merely accepted or logged is not sufficient.
 
+## Graph runs and improvement proposals
+
+`POST /api/graphs/run` starts a live graph with `{ "graphId": "graph_...", "input": "..." }`. Resume an approval-waiting or interrupted run with `{ "runId": "graph_run_..." }`. A `409` means another worker owns the lease or the graph is terminal. Inspect the pinned graph/agent versions and checkpoint through `GET /api/graphs/run`; never edit stored checkpoint JSON manually.
+
+An improvement moves through `pending_evaluation → awaiting_approval → approved → activated`. Evaluation is claimed with a unique evaluation-run reference so concurrent evaluators cannot both advance it. A score below the proposal threshold moves directly to `rejected`. Owners should review the evaluation details and candidate diff before approval, then activate in a separate request. Activation rejects stale proposals whose base is no longer active.
+
+Use `POST /api/agents/versions` with an archived `versionId` and incident reason for rollback. Rollback copies the known-good configuration into a new monotonic active version; it does not delete history or reactivate an old row in place. Existing graph versions remain pinned to their original snapshots.
+
 ## Alert thresholds
 
 Alert immediately when `toolExecutionsNeedingAttention` is nonzero. Warn when `queuedToolExecutions` remains nonzero for more than two drain intervals, or when a `running` lease remains expired after a drain. Correlate incidents by run ID, approval ID, execution ID, and the attributed audit entries.
 
 ## Deployment and rollback
 
-Apply `drizzle/0002_third_the_hood.sql` and `drizzle/0003_supreme_typhoid_mary.sql` in order before deploying code that uses durable executions. The application bootstrap creates the tables idempotently for local environments, but production migrations should be explicit and backed up. Rolling application code back does not remove the tables; keep them intact so checkpoints, execution history, and ambiguous outcomes are not lost.
+Apply migrations through `drizzle/0005_fine_squadron_supreme.sql` in order before deploying code that uses durable executions, graphs, or immutable versions. The application bootstrap creates the tables idempotently for local environments, but production migrations should be explicit and backed up. Rolling application code back does not remove the tables; keep them intact so checkpoints, execution history, and ambiguous outcomes are not lost.
