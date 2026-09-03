@@ -63,7 +63,7 @@ Vinext on Vite is the authoritative compiler and runtime adapter. The `app/` rou
 
 The mock provider is intentionally deterministic, so the full product and evaluation loop work without an API key. The OpenAI provider uses function tools, returns outputs by tool-call ID, disables provider-side response storage, and limits a run to four model turns.
 
-For deeper design notes, see [Architecture](docs/architecture.md) and the [HarnessDev protocol](docs/harness-dev.md). The current production-readiness findings and refactoring roadmap are in the [architecture and refactoring audit](docs/architecture-refactoring-audit.md). For a deployment-focused checklist, see [Deployment guide](docs/deployment.md).
+For a copy-paste setup, use the [launch guide](docs/launch-guide.md). For deeper design notes, see [Architecture](docs/architecture.md) and the [HarnessDev protocol](docs/harness-dev.md). The current production-readiness findings and refactoring roadmap are in the [architecture and refactoring audit](docs/architecture-refactoring-audit.md). The [deployment guide](docs/deployment.md) covers production acceptance and rollback.
 
 ## Quick start
 
@@ -90,6 +90,8 @@ Try these flows first:
 2. Inspect the account and policy lookup steps in the trace.
 3. Request a refund and open **Guardrails** to approve or reject the pending write.
 4. Open **Evaluations** and run the seeded release-readiness suite.
+
+For the full local, production, update, and rollback path, continue with the [launch guide](docs/launch-guide.md).
 
 ## Configure an OpenAI model
 
@@ -262,7 +264,7 @@ Production deployments should set `RELAY_ENV=production`. Runtime bounds have sa
 
 ## Release
 
-The current public release is `v0.4.0`. See [GitHub Releases](https://github.com/manishklach/relay-agent-platform/releases) for versioned notes.
+The current public release is `v0.4.1`. See [GitHub Releases](https://github.com/manishklach/relay-agent-platform/releases) for versioned notes.
 
 ## License
 

@@ -1,6 +1,6 @@
 {
   "name": "relay-agent-platform",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "license": "Apache-2.0",
   "private": true,
   "engines": {
@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit",
     "test:unit": "vitest run",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run build",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",
     "test:smoke": "node scripts/smoke.mjs"
