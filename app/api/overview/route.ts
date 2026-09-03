@@ -16,6 +16,8 @@ export async function GET(request: NextRequest) {
       audit,
       executions,
       checkpoints,
+      graphHealth,
+      improvementHealth,
     ] = await Promise.all([
       env.DB.prepare(
         `SELECT id, name, description, provider, model, status, updated_at FROM agents WHERE workspace_id = ? ORDER BY updated_at DESC`,
@@ -27,8 +29,13 @@ export async function GET(request: NextRequest) {
       )
         .bind(DEFAULT_WORKSPACE_ID)
         .all(),
-      env.DB.prepare(`SELECT runs.id, runs.agent_id, agents.name AS agent_name, runs.status, runs.input, runs.output, runs.latency_ms, runs.estimated_cost_usd, runs.created_at
-        FROM runs JOIN agents ON agents.id = runs.agent_id WHERE runs.workspace_id = ? ORDER BY runs.created_at DESC LIMIT 20`)
+      env.DB.prepare(`SELECT runs.id, runs.agent_id, agents.name AS agent_name,
+        run_agent_versions.agent_version_id, agent_versions.version AS agent_version,
+        runs.status, runs.input, runs.output, runs.latency_ms, runs.estimated_cost_usd, runs.created_at
+        FROM runs JOIN agents ON agents.id = runs.agent_id
+        LEFT JOIN run_agent_versions ON run_agent_versions.run_id = runs.id
+        LEFT JOIN agent_versions ON agent_versions.id = run_agent_versions.agent_version_id
+        WHERE runs.workspace_id = ? ORDER BY runs.created_at DESC LIMIT 20`)
         .bind(DEFAULT_WORKSPACE_ID)
         .all(),
       env.DB.prepare(`SELECT approvals.id, approvals.run_id, approvals.tool_name, approvals.arguments_json, approvals.status, approvals.requested_at, agents.name AS agent_name
@@ -60,6 +67,24 @@ export async function GET(request: NextRequest) {
            FROM run_checkpoints WHERE workspace_id = ?`,
       )
         .bind(Date.now(), DEFAULT_WORKSPACE_ID)
+        .first<Record<string, unknown>>(),
+      env.DB.prepare(
+        `SELECT
+          SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) AS ready_count,
+          SUM(CASE WHEN status = 'waiting_approval' THEN 1 ELSE 0 END) AS waiting_count,
+          SUM(CASE WHEN status = 'running' AND lease_expires_at <= ? THEN 1 ELSE 0 END) AS expired_count
+         FROM graph_runs WHERE workspace_id = ?`,
+      )
+        .bind(Date.now(), DEFAULT_WORKSPACE_ID)
+        .first<Record<string, unknown>>(),
+      env.DB.prepare(
+        `SELECT
+          SUM(CASE WHEN status = 'pending_evaluation' THEN 1 ELSE 0 END) AS pending_evaluation_count,
+          SUM(CASE WHEN status = 'awaiting_approval' THEN 1 ELSE 0 END) AS awaiting_approval_count,
+          SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved_count
+         FROM improvement_proposals WHERE workspace_id = ?`,
+      )
+        .bind(DEFAULT_WORKSPACE_ID)
         .first<Record<string, unknown>>(),
     ]);
 
@@ -104,6 +129,18 @@ export async function GET(request: NextRequest) {
           (executionCounts.dead_letter ?? 0) + (executionCounts.unknown ?? 0),
         resumableRunsReady: Number(checkpoints?.ready_count ?? 0),
         expiredRunLeases: Number(checkpoints?.expired_count ?? 0),
+        resumableGraphRunsReady: Number(graphHealth?.ready_count ?? 0),
+        graphRunsWaitingApproval: Number(graphHealth?.waiting_count ?? 0),
+        expiredGraphRunLeases: Number(graphHealth?.expired_count ?? 0),
+        improvementsPendingEvaluation: Number(
+          improvementHealth?.pending_evaluation_count ?? 0,
+        ),
+        improvementsAwaitingApproval: Number(
+          improvementHealth?.awaiting_approval_count ?? 0,
+        ),
+        approvedImprovementsNotActivated: Number(
+          improvementHealth?.approved_count ?? 0,
+        ),
       },
     });
   } catch (error) {
