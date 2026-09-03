@@ -79,6 +79,19 @@ const schemaStatements = [
     created_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_run_steps_run_sequence ON run_steps(run_id, sequence)`,
+  `CREATE TABLE IF NOT EXISTS run_checkpoints (
+    run_id TEXT PRIMARY KEY REFERENCES runs(id),
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    status TEXT NOT NULL CHECK(status IN ('ready','running','waiting_approval','completed','failed')),
+    state_json TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 0,
+    lease_owner TEXT,
+    lease_expires_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_run_checkpoints_workspace_status ON run_checkpoints(workspace_id, status, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_run_checkpoints_lease ON run_checkpoints(status, lease_expires_at)`,
   `CREATE TABLE IF NOT EXISTS approvals (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces(id),

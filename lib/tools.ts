@@ -1,9 +1,12 @@
 import { env } from 'cloudflare:workers';
 
 import { executeTool, getToolDefinition } from './builtin-tools';
-import { parseJson } from './server-data';
 import { safeHttpRequest } from './safe-http';
-import type { ToolDefinition, ToolExecutionContext } from './tool-contract';
+import {
+  parseToolConfig,
+  type ToolDefinition,
+  type ToolExecutionContext,
+} from './tool-contract';
 
 export { executeTool, getToolDefinition, toolCatalog } from './builtin-tools';
 export { supportsIdempotentExecution } from './tool-contract';
@@ -36,7 +39,7 @@ export async function loadRuntimeTools(
       },
       mutating: Boolean(row.approval_required) || builtin?.mutating === true,
       kind: String(row.kind) as ToolDefinition['kind'],
-      config: parseJson(row.config_json, {}),
+      config: parseToolConfig(row.config_json),
     };
   });
 }

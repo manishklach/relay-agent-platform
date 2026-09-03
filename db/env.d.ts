@@ -13,5 +13,7 @@ declare namespace Cloudflare {
     RELAY_RUN_MAX_OUTPUT_TOKENS?: string;
     RELAY_RUN_MAX_COST_USD?: string;
     RELAY_RUN_MAX_DURATION_MS?: string;
+    RELAY_RUN_MAX_CONTEXT_BYTES?: string;
+    RELAY_RUN_MAX_TOOL_RESULT_BYTES?: string;
   }
 }

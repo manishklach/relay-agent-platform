@@ -141,6 +141,35 @@ export const runSteps = sqliteTable(
   ],
 );
 
+export const runCheckpoints = sqliteTable(
+  'run_checkpoints',
+  {
+    runId: text('run_id')
+      .primaryKey()
+      .references(() => runs.id),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    status: text('status', {
+      enum: ['ready', 'running', 'waiting_approval', 'completed', 'failed'],
+    }).notNull(),
+    stateJson: text('state_json').notNull(),
+    version: integer('version').notNull().default(0),
+    leaseOwner: text('lease_owner'),
+    leaseExpiresAt: integer('lease_expires_at'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    index('idx_run_checkpoints_workspace_status').on(
+      table.workspaceId,
+      table.status,
+      table.updatedAt,
+    ),
+    index('idx_run_checkpoints_lease').on(table.status, table.leaseExpiresAt),
+  ],
+);
+
 export const approvals = sqliteTable(
   'approvals',
   {
