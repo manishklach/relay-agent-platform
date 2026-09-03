@@ -2,7 +2,7 @@
 
 Relay is a compact, production-shaped control plane for building and operating AI agents. It gives a solo founder one place to configure agents, connect tools, execute workflows, inspect traces, approve risky actions, and run regression evaluations.
 
-Its orchestration model is `Prompts → immutable Agent versions → bounded Loops → durable Graphs → Evaluations → human-gated Improvements`. “Self-improvement” creates and tests a candidate version; a model cannot silently rewrite the live configuration.
+Its orchestration model is `Prompts → immutable Agent versions → bounded Loops → durable Graphs → frozen Harnesses → Evaluations → human-gated Improvements`. “Self-improvement” creates and tests a candidate version; a model cannot silently rewrite the live configuration.
 
 [![Live demo](https://img.shields.io/badge/live_demo-open-6d5efc)](https://relay-agent-operations.abc123xyza.chatgpt.site)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6)](https://www.typescriptlang.org/)
@@ -21,6 +21,7 @@ Its orchestration model is `Prompts → immutable Agent versions → bounded Loo
 - **Observability** — retain runs, ordered model/tool/guardrail steps, latency, token counts, estimated cost, and errors.
 - **Evaluations** — create persistent suites, execute regression cases, and view release-readiness scores.
 - **Governance** — workspace roles, prompt-injection checks, PII redaction, and attributed audit records.
+- **HarnessDev** — evolve complete execution harnesses from weak seeds with immutable lineage, sealed held-out cases, paired feedback gates, executor-transfer checks, and explicit cost accounting.
 - **Durable storage** — Cloudflare D1 with a Drizzle schema, generated migrations, and idempotent seed data.
 - **Deployable application** — React 19, Vinext, Tailwind CSS, Cloudflare Workers, and OpenAI Sites.
 
@@ -62,7 +63,7 @@ Vinext on Vite is the authoritative compiler and runtime adapter. The `app/` rou
 
 The mock provider is intentionally deterministic, so the full product and evaluation loop work without an API key. The OpenAI provider uses function tools, returns outputs by tool-call ID, disables provider-side response storage, and limits a run to four model turns.
 
-For deeper design notes, see [Architecture](docs/architecture.md). The current production-readiness findings and refactoring roadmap are in the [architecture and refactoring audit](docs/architecture-refactoring-audit.md). For a deployment-focused checklist, see [Deployment guide](docs/deployment.md).
+For deeper design notes, see [Architecture](docs/architecture.md) and the [HarnessDev protocol](docs/harness-dev.md). The current production-readiness findings and refactoring roadmap are in the [architecture and refactoring audit](docs/architecture-refactoring-audit.md). For a deployment-focused checklist, see [Deployment guide](docs/deployment.md).
 
 ## Quick start
 
@@ -210,6 +211,10 @@ For a non-Sites deployment, replace the Sites identity adapter in `app/chatgpt-a
 | `/api/improvements`          | GET, POST | List or propose candidate agent versions                 |
 | `/api/improvements/evaluate` | POST      | Claim and evaluate one candidate against a suite         |
 | `/api/improvements/decide`   | POST      | Approve, reject, or activate a passing candidate         |
+| `/api/harnesses`             | GET, POST | List projects or create a weak-seed HarnessDev project   |
+| `/api/harnesses/versions`    | GET, POST | Inspect lineage or freeze an audited harness artifact    |
+| `/api/harnesses/evaluate`    | GET, POST | Run or inspect budgeted and sealed harness evaluations   |
+| `/api/harnesses/evolve`      | POST      | Select H0 or declare a complete final evolution version  |
 
 ## Security notes
 
@@ -257,7 +262,7 @@ Production deployments should set `RELAY_ENV=production`. Runtime bounds have sa
 
 ## Release
 
-The current public release is `v0.3.0`. See [GitHub Releases](https://github.com/manishklach/relay-agent-platform/releases) for versioned notes.
+The current public release is `v0.4.0`. See [GitHub Releases](https://github.com/manishklach/relay-agent-platform/releases) for versioned notes.
 
 ## License
 
