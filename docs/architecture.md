@@ -38,6 +38,7 @@ The enforceable boundaries are independent of the matcher: the runtime exposes o
 - `agents`: model, prompt, lifecycle, tools, and guardrail configuration.
 - `tools`: built-in, HTTP, and future MCP integration metadata.
 - `runs` and `run_steps`: outcomes, cost/latency, and ordered traces.
+- `run_checkpoints`: versioned model context, tool cursor, budget counters, and execution lease.
 - `approvals`: human decisions for state-changing calls.
 - `tool_executions`: durable, leased, idempotency-keyed jobs for approved external actions.
 - `evaluation_suites`, `evaluation_cases`, and `evaluation_runs`: regression gates.
@@ -68,7 +69,15 @@ Evaluation execution resolves each case's `grader_type` through `GraderRegistry`
 
 Model access is resolved through an explicit `ProviderRegistry`; unknown providers fail closed. `OpenAICompatibleProvider` owns its wire protocol, response schema validation, response-size limit, per-attempt timeout, and bounded transient retries. Retries reuse one idempotency key for the logical model request. An agent configured for OpenAI cannot silently fall back to deterministic mock output when credentials are unavailable.
 
-`ExecutionBudgetTracker` enforces independent ceilings for model turns, tool calls, input tokens, output tokens, estimated cost, and elapsed time. Limits are checked before each model turn, around each tool call, and after provider usage is known. These request-local controls prevent unbounded work, but they are not durable cancellation: a Worker termination cannot currently resume from the last completed model turn. Durable model-context checkpoints remain the next persistence milestone.
+`ExecutionBudgetTracker` enforces independent ceilings for model turns, tool calls, input tokens, output tokens, estimated cost, elapsed time, serialized context bytes, and per-tool result bytes. Limits and accumulated usage survive resume through the checkpoint.
+
+## Resumable model execution
+
+Each run begins with a schema-versioned `run_checkpoints` row. The runtime checkpoints before a provider request, after its response, after every tool cursor transition, and during finalization. Provider idempotency keys derive deterministically from run ID and turn, so resuming the same model turn does not invent a new logical request. Checkpoints preserve complete provider input items, pending function calls, the next tool cursor, trace sequence, token/cost counters, and original start time.
+
+A conditional D1 lease permits only one worker to advance a checkpoint. A normal request executes synchronously, while `defer: true` creates a ready checkpoint for asynchronous processing. `POST /api/runs/resume` claims either one named run or a bounded batch of ready/expired checkpoints. Completed, failed, approval-waiting, and actively leased runs cannot be resumed. Every operation is workspace-scoped and requires the operator role.
+
+Context is measured as serialized UTF-8 bytes before each provider call and after provider/tool additions. Oversized tool results are replaced with a structural truncation marker before entering model context or traces. Exceeding the total context limit fails the run deterministically instead of exhausting Worker memory. This is deterministic bounding, not semantic summarization; an attributed summarization policy is still future work for long-lived conversational agents.
 
 ## Durable approved actions
 
