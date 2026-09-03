@@ -257,7 +257,7 @@ Production deployments should set `RELAY_ENV=production`. Runtime bounds have sa
 
 ## Release
 
-The current public release is `v0.2.0`. See [GitHub Releases](https://github.com/manishklach/relay-agent-platform/releases) for versioned notes.
+The current public release is `v0.3.0`. See [GitHub Releases](https://github.com/manishklach/relay-agent-platform/releases) for versioned notes.
 
 ## License
 
