@@ -4,6 +4,10 @@ All notable changes to Relay are documented here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-03
+
+Relay 0.3.0 adds production-bounded agent loops, durable version-pinned graphs, resumable model execution, idempotent approved actions, and an evaluation- and owner-gated improvement lifecycle.
+
 ### Versioned graphs and governed self-improvement
 
 - Add immutable agent versions containing prompts, provider/model settings, tool allowlists, and guardrails.
